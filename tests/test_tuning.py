@@ -1,0 +1,134 @@
+"""Tests for weight tuning."""
+
+from __future__ import annotations
+
+import pytest
+
+from ragfuse import METRICS, WeightSearchResult, evaluate_weights, tune_weights
+
+
+@pytest.fixture
+def bm25_is_better() -> tuple[list[dict[str, list[str]]], list[set[str]]]:
+    """Three queries where BM25 ranks the relevant doc first and dense does not."""
+    rankings = [
+        {"bm25": ["rel", "x", "y"], "dense": ["x", "y", "rel"]},
+        {"bm25": ["rel2", "p", "q"], "dense": ["p", "q", "rel2"]},
+        {"bm25": ["rel3", "m", "n"], "dense": ["m", "n", "rel3"]},
+    ]
+    labels = [{"rel"}, {"rel2"}, {"rel3"}]
+    return rankings, labels
+
+
+class TestTuneWeights:
+    def test_favours_the_stronger_retriever(self, bm25_is_better) -> None:
+        rankings, labels = bm25_is_better
+        result = tune_weights(rankings, labels, top_k=3, resolution=10)
+        assert result.weights["bm25"] > result.weights["dense"]
+
+    def test_returns_a_result_object(self, bm25_is_better) -> None:
+        rankings, labels = bm25_is_better
+        result = tune_weights(rankings, labels, top_k=3)
+        assert isinstance(result, WeightSearchResult)
+        assert result.metric == "ndcg"
+        assert result.top_k == 3
+
+    def test_weights_form_a_distribution(self, bm25_is_better) -> None:
+        rankings, labels = bm25_is_better
+        result = tune_weights(rankings, labels, top_k=3, resolution=10)
+        assert sum(result.weights.values()) == pytest.approx(1.0)
+
+    def test_table_is_sorted_best_first(self, bm25_is_better) -> None:
+        rankings, labels = bm25_is_better
+        result = tune_weights(rankings, labels, top_k=3)
+        scores = [score for _, score in result.table]
+        assert scores == sorted(scores, reverse=True)
+        assert result.score == pytest.approx(scores[0])
+
+    def test_tuning_never_scores_below_equal_weights(self, bm25_is_better) -> None:
+        rankings, labels = bm25_is_better
+        result = tune_weights(rankings, labels, top_k=3, resolution=10)
+        assert result.improvement() >= 0
+
+    def test_resolution_controls_the_grid_size(self, bm25_is_better) -> None:
+        rankings, labels = bm25_is_better
+        coarse = tune_weights(rankings, labels, top_k=3, resolution=2)
+        fine = tune_weights(rankings, labels, top_k=3, resolution=10)
+        assert len(fine.table) > len(coarse.table)
+
+    def test_baseline_is_nan_when_the_grid_misses_equal_weights(self, bm25_is_better) -> None:
+        # An odd resolution over two retrievers never lands on exactly 0.5.
+        rankings, labels = bm25_is_better
+        result = tune_weights(rankings, labels, top_k=3, resolution=3)
+        assert result.baseline_score != result.baseline_score  # NaN
+
+    def test_ties_prefer_the_more_balanced_weights(self) -> None:
+        # Both retrievers return the same list, so every weighting scores alike.
+        rankings = [{"a": ["rel", "x"], "b": ["rel", "x"]}]
+        result = tune_weights(rankings, [{"rel"}], top_k=2, resolution=10)
+        assert result.weights["a"] == pytest.approx(0.5)
+
+    @pytest.mark.parametrize("metric", sorted(METRICS))
+    def test_every_named_metric_runs(self, bm25_is_better, metric: str) -> None:
+        rankings, labels = bm25_is_better
+        result = tune_weights(rankings, labels, top_k=3, metric=metric)
+        assert result.metric == metric
+        assert 0.0 <= result.score <= 1.0
+
+    def test_custom_metric_callable(self, bm25_is_better) -> None:
+        rankings, labels = bm25_is_better
+
+        def always_half(retrieved, relevant, k):
+            return 0.5
+
+        result = tune_weights(rankings, labels, top_k=3, metric=always_half)
+        assert result.score == pytest.approx(0.5)
+        assert result.metric == "always_half"
+
+    def test_three_retrievers(self) -> None:
+        rankings = [{"a": ["rel"], "b": ["x"], "c": ["y"]}]
+        result = tune_weights(rankings, [{"rel"}], top_k=1, resolution=4)
+        assert set(result.weights) == {"a", "b", "c"}
+        assert result.weights["a"] > 0
+
+
+class TestEvaluateWeights:
+    def test_scores_a_specific_assignment(self, bm25_is_better) -> None:
+        rankings, labels = bm25_is_better
+        score = evaluate_weights(rankings, labels, {"bm25": 1.0, "dense": 0.0}, top_k=3)
+        assert score == pytest.approx(1.0)
+
+    def test_empty_input_scores_zero(self) -> None:
+        assert evaluate_weights([], [], {"a": 1.0}) == 0.0
+
+    def test_length_mismatch_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="label sets"):
+            evaluate_weights([{"a": ["x"]}], [{"x"}, {"y"}], {"a": 1.0})
+
+
+class TestValidation:
+    def test_empty_rankings_are_rejected(self) -> None:
+        with pytest.raises(ValueError, match="nothing to tune on"):
+            tune_weights([], [])
+
+    def test_length_mismatch_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="label sets"):
+            tune_weights([{"a": ["x"]}], [{"x"}, {"y"}])
+
+    def test_inconsistent_retriever_names_are_rejected(self) -> None:
+        rankings = [{"a": ["x"], "b": ["y"]}, {"a": ["x"], "c": ["z"]}]
+        with pytest.raises(ValueError, match="they must match"):
+            tune_weights(rankings, [{"x"}, {"x"}])
+
+    def test_query_without_retrievers_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="no retrievers"):
+            tune_weights([{}], [{"x"}])
+
+    def test_unknown_metric_name_is_rejected(self, bm25_is_better) -> None:
+        rankings, labels = bm25_is_better
+        with pytest.raises(ValueError, match="unknown metric"):
+            tune_weights(rankings, labels, metric="nonsense")
+
+    def test_resolution_below_one_is_rejected(self, bm25_is_better) -> None:
+        rankings, labels = bm25_is_better
+        with pytest.raises(ValueError, match="resolution must be at least 1"):
+            tune_weights(rankings, labels, resolution=0)
