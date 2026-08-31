@@ -7,9 +7,9 @@ weight simplex and reports what each combination actually scores.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from itertools import product
+from math import comb
 
 from .fusion import DEFAULT_K, reciprocal_rank_fusion
 from .metrics import ndcg_at_k, precision_at_k, recall_at_k, reciprocal_rank
@@ -37,6 +37,9 @@ class WeightSearchResult:
         metric: Name of the metric that was optimised.
         top_k: Cutoff the metric was computed at.
         table: Every combination tried, best first, as ``(weights, score)``.
+        baseline_score: Score of the exact equal-weight assignment, evaluated
+            directly on the data (not looked up in the grid, which may not
+            contain it at every resolution/source-count combination).
     """
 
     weights: dict[str, float]
@@ -44,15 +47,7 @@ class WeightSearchResult:
     metric: str
     top_k: int
     table: tuple[tuple[dict[str, float], float], ...]
-
-    @property
-    def baseline_score(self) -> float:
-        """Score of the equal-weight assignment, for comparison."""
-        equal = 1.0 / len(self.weights)
-        for weights, score in self.table:
-            if all(abs(w - equal) < 1e-9 for w in weights.values()):
-                return score
-        return float("nan")
+    baseline_score: float
 
     def improvement(self) -> float:
         """How much tuning gained over equal weights, in metric points."""
@@ -67,16 +62,36 @@ def _resolve_metric(metric: str | Metric) -> tuple[str, Metric]:
     return metric, METRICS[metric]
 
 
+def _compositions(total: int, parts: int) -> Iterator[tuple[int, ...]]:
+    """Yield every way to write ``total`` as an ordered sum of ``parts`` >= 0."""
+    if parts == 1:
+        yield (total,)
+        return
+    for head in range(total + 1):
+        for tail in _compositions(total - head, parts - 1):
+            yield (head, *tail)
+
+
 def _simplex_grid(n_sources: int, resolution: int) -> list[tuple[float, ...]]:
-    """All weight vectors on a lattice over the simplex, summing to 1."""
+    """All weight vectors on a lattice over the simplex, summing to 1.
+
+    Generated as integer compositions, so the cost is the number of valid
+    points -- C(resolution + n - 1, n - 1) -- rather than the full
+    ``(resolution + 1) ** n`` Cartesian product, which becomes millions of
+    discarded tuples by six retrievers.
+    """
     if resolution < 1:
         raise ValueError(f"resolution must be at least 1, got {resolution}")
-    combinations = [
-        counts
-        for counts in product(range(resolution + 1), repeat=n_sources)
-        if sum(counts) == resolution
+    n_points = comb(resolution + n_sources - 1, n_sources - 1)
+    if n_points > 200_000:
+        raise ValueError(
+            f"resolution={resolution} over {n_sources} rankings means "
+            f"{n_points:,} weight combinations; lower the resolution or "
+            "tune fewer retrievers at once"
+        )
+    return [
+        tuple(c / resolution for c in counts) for counts in _compositions(resolution, n_sources)
     ]
-    return [tuple(c / resolution for c in counts) for counts in combinations]
 
 
 def evaluate_weights(
@@ -179,10 +194,16 @@ def tune_weights(
     scored.sort(key=lambda entry: (-entry[1], max(entry[0].values())))
     best_weights, best_score = scored[0]
 
+    equal = dict.fromkeys(sources, 1.0 / len(sources))
+    baseline = evaluate_weights(
+        rankings_per_query, relevant_per_query, equal, k=k, top_k=top_k, metric=metric
+    )
+
     return WeightSearchResult(
         weights=best_weights,
         score=best_score,
         metric=metric_name,
         top_k=top_k,
         table=tuple(scored),
+        baseline_score=baseline,
     )

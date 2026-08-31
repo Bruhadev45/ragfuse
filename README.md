@@ -72,7 +72,7 @@ hits = rrf(
     key=lambda doc: doc.id,
 )
 
-hits[0].item  # the original object, from whichever retriever ranked it best
+hits[0].item  # the original object, from the retriever whose weighted contribution was largest
 ```
 
 ## Every hit explains itself
@@ -136,7 +136,7 @@ These numbers come from [JurisGPT](https://github.com/Bruhadev45/Juris-GPT), the
 | Dense only (InLegalBERT) | 0.483 | 0.898 | 0.780 |
 | **Hybrid, fused** | **0.842** | **0.953** | 0.685 |
 
-Fusion gives the best recall and the best MRR — it finds more of the relevant statutes, and it puts the first one higher.
+The fused row uses the production 2:1 BM25:lexical weighting (the very duplicate-list hack this library replaces). Read the whole table, not just the bold cells: fusion wins recall and MRR, and its nDCG@5 is *lower* than lexical-only here. Paired statistics over the same runs ([rag-eval-lab](https://github.com/Bruhadev45/rag-eval-lab)) sharpen it further — the MRR gain is significant (+0.065, p=0.0025); the recall gain (+0.017) is within noise at n=120. What fusion reliably buys on this corpus is the first relevant statute placed higher.
 
 It also comes with a warning. Adding a general-purpose MS MARCO cross-encoder reranker on top *lowered* nDCG@5 in every configuration tested:
 

@@ -55,11 +55,22 @@ class TestTuneWeights:
         fine = tune_weights(rankings, labels, top_k=3, resolution=10)
         assert len(fine.table) > len(coarse.table)
 
-    def test_baseline_is_nan_when_the_grid_misses_equal_weights(self, bm25_is_better) -> None:
-        # An odd resolution over two retrievers never lands on exactly 0.5.
+    def test_baseline_is_finite_at_every_resolution(self, bm25_is_better) -> None:
+        # The equal-weight baseline is evaluated directly on the data, so it
+        # exists even when the sweep grid cannot represent 1/n exactly
+        # (e.g. two retrievers at an odd resolution).
         rankings, labels = bm25_is_better
-        result = tune_weights(rankings, labels, top_k=3, resolution=3)
-        assert result.baseline_score != result.baseline_score  # NaN
+        for resolution in (2, 3, 7, 10):
+            result = tune_weights(rankings, labels, top_k=3, resolution=resolution)
+            assert result.baseline_score == result.baseline_score  # not NaN
+            assert 0.0 <= result.baseline_score <= 1.0
+
+    def test_three_retrievers_get_a_finite_improvement(self) -> None:
+        # Regression: with 3 retrievers at the default resolution=10, the grid
+        # holds no exact (1/3, 1/3, 1/3) point; improvement() used to be NaN.
+        rankings = [{"bm25": ["rel", "x"], "dense": ["x", "rel"], "sparse": ["rel", "x"]}]
+        result = tune_weights(rankings, [{"rel"}], top_k=2)
+        assert result.improvement() == result.improvement()  # not NaN
 
     def test_ties_prefer_the_more_balanced_weights(self) -> None:
         # Both retrievers return the same list, so every weighting scores alike.
@@ -132,3 +143,10 @@ class TestValidation:
         rankings, labels = bm25_is_better
         with pytest.raises(ValueError, match="resolution must be at least 1"):
             tune_weights(rankings, labels, resolution=0)
+
+    def test_explosive_grids_are_rejected_up_front(self) -> None:
+        # 8 retrievers at resolution 30 is ~10.3M combinations; refuse with a
+        # message instead of hanging.
+        rankings = [{str(i): ["rel"] for i in range(8)}]
+        with pytest.raises(ValueError, match="lower the resolution"):
+            tune_weights(rankings, [{"rel"}], resolution=30)

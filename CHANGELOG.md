@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-08-31
+
+Fixes from a same-day adversarial review of 0.1.0.
+
+### Fixed
+- Documents following a skipped duplicate now keep their rank among *unique*
+  documents, so collapsing chunks to a parent document via ``key=`` no longer
+  deflates every later document's score.
+- ``tune_weights`` evaluates the equal-weight baseline directly on the data;
+  ``improvement()`` is no longer NaN whenever the sweep grid cannot represent
+  1/n exactly (e.g. three retrievers at the default resolution).
+- ``FusedHit`` excludes ``item`` from its hash, so hits carrying dict (or any
+  unhashable) documents work in sets and as dict keys.
+- NaN weights are rejected with a clear error instead of silently corrupting
+  every score.
+- The weight sweep generates only valid simplex points (integer compositions)
+  instead of filtering the full Cartesian product, and refuses grids over
+  200,000 combinations with an actionable message.
+
+### Changed
+- README: the JurisGPT benchmark table now names the weighting used and
+  states that fusion's nDCG@5 is lower than lexical-only on that corpus,
+  with a pointer to the paired statistics in rag-eval-lab.
+
 ## [0.1.0] - 2026-08-31
 
 First release. Extracted from the retrieval layer of

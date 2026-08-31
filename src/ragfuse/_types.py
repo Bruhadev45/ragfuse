@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 __all__ = ["Contribution", "FusedHit"]
@@ -41,7 +41,10 @@ class FusedHit:
     score: float
     normalized_score: float
     contributions: tuple[Contribution, ...]
-    item: Any = None
+    # Excluded from the hash: item may be any object the caller's retrievers
+    # returned (often a dict), and an unhashable item must not make the whole
+    # hit unusable in sets and dict keys. Equality still compares it.
+    item: Any = field(default=None, hash=False)
 
     @property
     def sources(self) -> tuple[str, ...]:

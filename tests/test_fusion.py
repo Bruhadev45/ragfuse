@@ -145,6 +145,13 @@ class TestProvenance:
         )
         assert hits[0].item is strong
 
+    def test_hits_with_dict_items_are_hashable(self) -> None:
+        """Regression: item may be any object (often a dict); it must not
+        make the hit unusable in sets and dict keys."""
+        hits = reciprocal_rank_fusion({"r": [{"id": "a"}, {"id": "b"}]}, key=lambda d: d["id"])
+        assert len({hits[0], hits[1], hits[0]}) == 2
+        assert {hits[0]: "cached"}[hits[0]] == "cached"
+
     def test_hits_are_immutable(self) -> None:
         hit = reciprocal_rank_fusion({"r": ["a"]})[0]
         with pytest.raises((AttributeError, TypeError)):
@@ -180,6 +187,18 @@ class TestDeterminismAndDuplicates:
         assert repeated[0].score == pytest.approx(clean[0].score)
         assert len(repeated[0].contributions) == 1
 
+    def test_documents_after_a_duplicate_keep_their_unique_rank(self) -> None:
+        """Regression: collapsing chunks to a parent doc via key= must not
+        push later documents down by the number of skipped duplicates."""
+        chunked = reciprocal_rank_fusion(
+            {"dense": ["docA#1", "docA#2", "docA#3", "docB#1"]},
+            key=lambda c: c.split("#")[0],
+        )
+        flat = reciprocal_rank_fusion({"dense": ["docA", "docB"]})
+        doc_b = next(h for h in chunked if h.key == "docB")
+        assert doc_b.contributions[0].rank == 1
+        assert doc_b.score == pytest.approx(flat[1].score)
+
     def test_larger_k_flattens_the_gap_between_ranks(self) -> None:
         def gap(k: int) -> float:
             hits = reciprocal_rank_fusion({"r": ["a", "b"]}, k=k)
@@ -205,6 +224,10 @@ class TestValidation:
     def test_negative_weight_is_rejected(self) -> None:
         with pytest.raises(ValueError, match="must be >= 0"):
             reciprocal_rank_fusion({"r": ["a"]}, weights={"r": -1.0})
+
+    def test_nan_weight_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="NaN"):
+            reciprocal_rank_fusion({"r": ["a"]}, weights={"r": float("nan")})
 
     def test_all_zero_weights_are_rejected(self) -> None:
         with pytest.raises(ValueError, match="greater than zero"):

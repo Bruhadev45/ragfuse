@@ -20,6 +20,7 @@ weights, and silently breaks as soon as you want 0.6/0.4.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from math import isnan
 from typing import Any, TypeVar
 
 from ._types import Contribution, FusedHit
@@ -79,6 +80,10 @@ def _as_weight_map(
         resolved = {name: float(w) for name, w in zip(names, weights, strict=True)}
 
     for name, weight in resolved.items():
+        # NaN slips past both comparisons below (NaN < 0 and NaN == 0 are
+        # false), so reject it explicitly rather than corrupt every score.
+        if isnan(weight):
+            raise ValueError(f"weight for {name!r} is NaN; weights must be finite and >= 0")
         if weight < 0:
             raise ValueError(f"weight for {name!r} is negative ({weight}); weights must be >= 0")
 
@@ -159,12 +164,16 @@ def reciprocal_rank_fusion(
         weight = weight_map[source]
         seen_in_this_ranking: set[str] = set()
 
-        for rank, document in enumerate(ranking):
+        for document in ranking:
             doc_key = extract(document, source)
             # A document repeated inside one list must not be counted twice;
             # its best (earliest) rank is the one that carries information.
+            # Rank is the position among *unique* documents, so a skipped
+            # duplicate does not push every later document down a slot --
+            # that matters when key= collapses chunks to their parent doc.
             if doc_key in seen_in_this_ranking:
                 continue
+            rank = len(seen_in_this_ranking)
             seen_in_this_ranking.add(doc_key)
 
             score = weight / (k + rank + 1)

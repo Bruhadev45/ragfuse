@@ -25,7 +25,7 @@ from .metrics import (
 )
 from .tuning import METRICS, WeightSearchResult, evaluate_weights, tune_weights
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "DEFAULT_K",
