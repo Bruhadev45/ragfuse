@@ -117,6 +117,16 @@ result.score  # its mean nDCG@5
 result.improvement()  # how many metric points that gained over equal weights
 ```
 
+Tuning takes the same `key=` as fusion, so you can sweep over the objects your retrievers already return instead of projecting them to ids first. The labels stay in whatever ids `key` produces:
+
+```python
+result = tune_weights(
+    rankings_per_query,  # [{"bm25": [Doc(...), ...], "dense": [...]}, ...]
+    relevant_per_query,  # [{"sec-149"}, ...]
+    key=lambda doc: doc.id,
+)
+```
+
 `result.table` holds every combination tried, best first — worth plotting before you trust a single number, since a weight that wins by 0.001 on 40 queries has not really won.
 
 Metrics are available on their own too:
@@ -152,8 +162,8 @@ Retrieval quality on specialist corpora is corpus-bound, not retriever-bound. A 
 | Function | Purpose |
 |---|---|
 | `reciprocal_rank_fusion(rankings, *, k, weights, key, top_k)` | Fuse ranked lists. Aliased as `rrf`. |
-| `tune_weights(rankings, relevant, *, metric, top_k, resolution)` | Sweep the weight simplex for the best assignment. |
-| `evaluate_weights(rankings, relevant, weights, ...)` | Score one specific weight assignment. |
+| `tune_weights(rankings, relevant, *, metric, top_k, resolution, key)` | Sweep the weight simplex for the best assignment. |
+| `evaluate_weights(rankings, relevant, weights, *, metric, top_k, key)` | Score one specific weight assignment. |
 | `recall_at_k` · `precision_at_k` · `ndcg_at_k` | Binary-relevance metrics at a cutoff. |
 | `reciprocal_rank` · `mean_reciprocal_rank` | Rank of the first relevant hit. |
 

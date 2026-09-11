@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pytest
 
 from ragfuse import METRICS, WeightSearchResult, evaluate_weights, tune_weights
@@ -150,3 +152,94 @@ class TestValidation:
         rankings = [{str(i): ["rel"] for i in range(8)}]
         with pytest.raises(ValueError, match="lower the resolution"):
             tune_weights(rankings, [{"rel"}], resolution=30)
+
+
+@dataclass(frozen=True)
+class Doc:
+    """A document as a retriever usually hands it back: an object, not an id."""
+
+    id: str
+    text: str
+
+
+class TestKeySupport:
+    """``key=`` reaches tuning too, so object documents need no conversion pass."""
+
+    @pytest.fixture
+    def object_rankings(self) -> tuple[list[dict[str, list[Doc]]], list[set[str]]]:
+        def docs(*ids: str) -> list[Doc]:
+            return [Doc(id=doc_id, text=f"body of {doc_id}") for doc_id in ids]
+
+        rankings = [
+            {"bm25": docs("rel", "x", "y"), "dense": docs("x", "y", "rel")},
+            {"bm25": docs("rel2", "p", "q"), "dense": docs("p", "q", "rel2")},
+            {"bm25": docs("rel3", "m", "n"), "dense": docs("m", "n", "rel3")},
+        ]
+        labels = [{"rel"}, {"rel2"}, {"rel3"}]
+        return rankings, labels
+
+    def test_tunes_on_object_documents(self, object_rankings) -> None:
+        rankings, labels = object_rankings
+        result = tune_weights(rankings, labels, top_k=3, resolution=10, key=lambda doc: doc.id)
+        assert result.weights["bm25"] > result.weights["dense"]
+
+    def test_object_tuning_matches_the_id_equivalent(self, object_rankings, bm25_is_better) -> None:
+        # Same data, one pass through objects and one through raw ids: the
+        # sweep must not notice the difference.
+        object_result = tune_weights(
+            object_rankings[0], object_rankings[1], top_k=3, resolution=10, key=lambda doc: doc.id
+        )
+        id_result = tune_weights(*bm25_is_better, top_k=3, resolution=10)
+        assert object_result.weights == id_result.weights
+        assert object_result.score == pytest.approx(id_result.score)
+        assert object_result.baseline_score == pytest.approx(id_result.baseline_score)
+
+    def test_baseline_also_goes_through_key(self, object_rankings) -> None:
+        # improvement() compares two evaluations; if only the sweep saw key=,
+        # the baseline would raise rather than score.
+        rankings, labels = object_rankings
+        result = tune_weights(rankings, labels, top_k=3, key=lambda doc: doc.id)
+        assert result.baseline_score > 0.0
+        assert result.improvement() >= 0.0
+
+    def test_evaluate_weights_accepts_key(self, object_rankings) -> None:
+        rankings, labels = object_rankings
+        score = evaluate_weights(
+            rankings, labels, {"bm25": 1.0, "dense": 0.0}, top_k=3, key=lambda doc: doc.id
+        )
+        assert score == pytest.approx(1.0)
+
+    def test_key_maps_dict_documents(self) -> None:
+        rankings = [{"bm25": [{"id": "rel"}, {"id": "x"}], "dense": [{"id": "rel"}]}]
+        score = evaluate_weights(
+            rankings, [{"rel"}], {"bm25": 1.0, "dense": 1.0}, top_k=2, key=lambda doc: doc["id"]
+        )
+        assert score == pytest.approx(1.0)
+
+    def test_key_can_collapse_chunks_onto_their_parent(self) -> None:
+        # Two chunks of the same statute are one document once key= collapses
+        # them, so the labels are written in parent ids.
+        rankings = [
+            {
+                "bm25": [Doc("sec-149#0", "a"), Doc("sec-149#1", "b"), Doc("sec-1#0", "c")],
+                "dense": [Doc("sec-149#2", "d"), Doc("sec-1#0", "c")],
+            }
+        ]
+        score = evaluate_weights(
+            rankings,
+            [{"sec-149"}],
+            {"bm25": 1.0, "dense": 1.0},
+            top_k=1,
+            key=lambda doc: doc.id.split("#")[0],
+        )
+        assert score == pytest.approx(1.0)
+
+    def test_object_documents_without_key_are_rejected(self, object_rankings) -> None:
+        rankings, labels = object_rankings
+        with pytest.raises(TypeError, match="pass key="):
+            tune_weights(rankings, labels, top_k=3, resolution=2)
+
+    def test_evaluate_weights_without_key_is_rejected(self, object_rankings) -> None:
+        rankings, labels = object_rankings
+        with pytest.raises(TypeError, match="pass key="):
+            evaluate_weights(rankings, labels, {"bm25": 1.0, "dense": 1.0}, top_k=3)

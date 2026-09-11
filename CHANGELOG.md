@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `tune_weights` and `evaluate_weights` accept `key=`, matching
+  `reciprocal_rank_fusion`. Weight sweeps can now run over the document
+  objects a retriever returns instead of requiring a projection to ids first;
+  the equal-weight baseline goes through the same `key`, so `improvement()`
+  stays meaningful.
+
 ## [0.1.1] - 2026-08-31
 
 Fixes from a same-day adversarial review of 0.1.0.

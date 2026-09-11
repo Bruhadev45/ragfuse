@@ -10,11 +10,14 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from math import comb
+from typing import TypeVar
 
 from .fusion import DEFAULT_K, reciprocal_rank_fusion
 from .metrics import ndcg_at_k, precision_at_k, recall_at_k, reciprocal_rank
 
 __all__ = ["METRICS", "WeightSearchResult", "evaluate_weights", "tune_weights"]
+
+T = TypeVar("T")
 
 Metric = Callable[[Sequence[str], Iterable[str], int], float]
 
@@ -95,15 +98,39 @@ def _simplex_grid(n_sources: int, resolution: int) -> list[tuple[float, ...]]:
 
 
 def evaluate_weights(
-    rankings_per_query: Sequence[Mapping[str, Sequence[str]]],
+    rankings_per_query: Sequence[Mapping[str, Sequence[T]]],
     relevant_per_query: Sequence[Iterable[str]],
     weights: Mapping[str, float],
     *,
     k: int = DEFAULT_K,
     top_k: int = 5,
     metric: str | Metric = "ndcg",
+    key: Callable[[T], str] | None = None,
 ) -> float:
-    """Mean metric value when fusing every query with ``weights``."""
+    """Mean metric value when fusing every query with ``weights``.
+
+    Args:
+        rankings_per_query: One ``{retriever: ranked_documents}`` mapping per
+            query, each list ordered best-first.
+        relevant_per_query: The relevant ids for each query, in the same order.
+        weights: The assignment to score, passed through to
+            :func:`~ragfuse.fusion.reciprocal_rank_fusion` unchanged.
+        k: RRF smoothing constant.
+        top_k: Cutoff at which the metric is computed.
+        metric: A name from :data:`METRICS`, or a callable
+            ``(retrieved, relevant, k) -> float``.
+        key: Extracts a stable identifier from a document, exactly as in
+            :func:`~ragfuse.fusion.reciprocal_rank_fusion`. Required unless the
+            ranked documents are already strings. The ids it returns are what
+            ``relevant_per_query`` is matched against.
+
+    Returns:
+        The mean metric value over all queries, or ``0.0`` if there are none.
+
+    Raises:
+        ValueError: If the two sequences differ in length.
+        TypeError: If documents are not strings and no ``key`` is given.
+    """
     if len(rankings_per_query) != len(relevant_per_query):
         raise ValueError(
             f"got {len(rankings_per_query)} query rankings for {len(relevant_per_query)} label sets"
@@ -114,19 +141,20 @@ def evaluate_weights(
     _, metric_fn = _resolve_metric(metric)
     total = 0.0
     for rankings, relevant in zip(rankings_per_query, relevant_per_query, strict=True):
-        fused = reciprocal_rank_fusion(rankings, k=k, weights=weights, top_k=top_k)
+        fused = reciprocal_rank_fusion(rankings, k=k, weights=weights, key=key, top_k=top_k)
         total += metric_fn([hit.key for hit in fused], relevant, top_k)
     return total / len(rankings_per_query)
 
 
 def tune_weights(
-    rankings_per_query: Sequence[Mapping[str, Sequence[str]]],
+    rankings_per_query: Sequence[Mapping[str, Sequence[T]]],
     relevant_per_query: Sequence[Iterable[str]],
     *,
     k: int = DEFAULT_K,
     top_k: int = 5,
     metric: str | Metric = "ndcg",
     resolution: int = 10,
+    key: Callable[[T], str] | None = None,
 ) -> WeightSearchResult:
     """Sweep the weight simplex and return the best assignment.
 
@@ -140,6 +168,11 @@ def tune_weights(
             ``(retrieved, relevant, k) -> float``.
         resolution: Lattice steps per axis. ``10`` gives weights in units of
             0.1; raise it for a finer sweep at quadratic-or-worse cost.
+        key: Extracts a stable identifier from a document, exactly as in
+            :func:`~ragfuse.fusion.reciprocal_rank_fusion`. Required unless the
+            ranked documents are already strings -- tuning on the objects your
+            retrievers actually return needs no conversion pass. The ids it
+            returns are what ``relevant_per_query`` is matched against.
 
     Returns:
         The best weights, their score, and the full table of what was tried.
@@ -147,11 +180,21 @@ def tune_weights(
     Raises:
         ValueError: If the inputs are empty, mismatched in length, disagree on
             which retrievers exist, or the metric name is unknown.
+        TypeError: If documents are not strings and no ``key`` is given.
 
     Example:
         >>> rankings = [{"bm25": ["a", "b"], "dense": ["b", "a"]}]
         >>> result = tune_weights(rankings, [{"b"}], top_k=2, resolution=2)
         >>> round(result.score, 3) >= 0.0
+        True
+
+        Tuning on documents rather than ids:
+
+        >>> docs = [{"bm25": [{"id": "a"}, {"id": "b"}], "dense": [{"id": "b"}]}]
+        >>> result = tune_weights(
+        ...     docs, [{"b"}], top_k=2, resolution=2, key=lambda doc: doc["id"]
+        ... )
+        >>> result.weights["dense"] >= result.weights["bm25"]
         True
     """
     if not rankings_per_query:
@@ -186,6 +229,7 @@ def tune_weights(
             k=k,
             top_k=top_k,
             metric=metric,
+            key=key,
         )
         scored.append((weights, score))
 
@@ -196,7 +240,7 @@ def tune_weights(
 
     equal = dict.fromkeys(sources, 1.0 / len(sources))
     baseline = evaluate_weights(
-        rankings_per_query, relevant_per_query, equal, k=k, top_k=top_k, metric=metric
+        rankings_per_query, relevant_per_query, equal, k=k, top_k=top_k, metric=metric, key=key
     )
 
     return WeightSearchResult(
