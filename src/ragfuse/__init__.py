@@ -17,6 +17,7 @@ from __future__ import annotations
 from ._types import Contribution, FusedHit
 from .fusion import DEFAULT_K, reciprocal_rank_fusion, rrf
 from .metrics import (
+    PRECISION_MODES,
     mean_reciprocal_rank,
     ndcg_at_k,
     precision_at_k,
@@ -30,6 +31,7 @@ __version__ = "0.1.1"
 __all__ = [
     "DEFAULT_K",
     "METRICS",
+    "PRECISION_MODES",
     "Contribution",
     "FusedHit",
     "WeightSearchResult",

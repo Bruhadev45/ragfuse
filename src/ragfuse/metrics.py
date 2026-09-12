@@ -10,8 +10,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from math import log2
+from typing import Literal
 
 __all__ = [
+    "PRECISION_MODES",
     "mean_reciprocal_rank",
     "ndcg_at_k",
     "precision_at_k",
@@ -36,19 +38,59 @@ def _dedupe(retrieved: Sequence[str]) -> list[str]:
     return unique
 
 
-def precision_at_k(retrieved: Sequence[str], relevant: Iterable[str], k: int) -> float:
+PRECISION_MODES = frozenset({"retrieved", "trec"})
+"""Denominators :func:`precision_at_k` can divide by. See that function."""
+
+
+def precision_at_k(
+    retrieved: Sequence[str],
+    relevant: Iterable[str],
+    k: int,
+    *,
+    mode: Literal["retrieved", "trec"] = "retrieved",
+) -> float:
     """Fraction of the top ``k`` results that are relevant.
 
-    The denominator is ``min(k, len(retrieved))``, so a system that returns
-    three results is not penalised for the seven it never claimed to return.
-    Returns ``0.0`` when nothing was retrieved.
+    Two conventions disagree about the denominator when a retriever returns
+    fewer than ``k`` documents, and ``mode`` picks between them:
+
+    - ``"retrieved"`` (the default) divides by ``min(k, len(retrieved))``, so a
+      system that returns three results is not penalised for the seven it never
+      claimed to return. This is the useful reading when you are comparing
+      retrievers whose result lists are short or variable in length -- a
+      re-ranked shortlist, or a filtered search that legitimately runs dry.
+    - ``"trec"`` divides by ``k`` always, which is what ``trec_eval`` and the
+      published numbers computed with it report. Short lists *are* penalised:
+      the unfilled slots count as misses. Use this when your numbers have to
+      line up with a benchmark leaderboard.
+
+    The two agree exactly whenever at least ``k`` distinct documents were
+    retrieved, so the choice only matters at the margin -- but at the margin it
+    can move a headline number a long way, which is why it is explicit here
+    rather than assumed. Duplicates are dropped before the cutoff is applied
+    under both modes: a document returned twice is one hit, not two.
+
+        >>> precision_at_k(["a", "b"], {"a"}, k=5)
+        0.5
+        >>> precision_at_k(["a", "b"], {"a"}, k=5, mode="trec")
+        0.2
+
+    Returns ``0.0`` when nothing was retrieved, under either mode.
+
+    Raises:
+        ValueError: If ``k`` is not positive, or ``mode`` is not one of
+            :data:`PRECISION_MODES`.
     """
     _check_k(k)
+    if mode not in PRECISION_MODES:
+        raise ValueError(f"unknown mode {mode!r}; choose from {sorted(PRECISION_MODES)}")
     relevant_set = set(relevant)
     top = _dedupe(retrieved)[:k]
-    if not top:
+    hits = sum(1 for item in top if item in relevant_set)
+    denominator = k if mode == "trec" else len(top)
+    if denominator == 0:
         return 0.0
-    return sum(1 for item in top if item in relevant_set) / len(top)
+    return hits / denominator
 
 
 def recall_at_k(retrieved: Sequence[str], relevant: Iterable[str], k: int) -> float:

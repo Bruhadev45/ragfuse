@@ -164,10 +164,33 @@ Retrieval quality on specialist corpora is corpus-bound, not retriever-bound. A 
 | `reciprocal_rank_fusion(rankings, *, k, weights, key, top_k)` | Fuse ranked lists. Aliased as `rrf`. |
 | `tune_weights(rankings, relevant, *, metric, top_k, resolution, key)` | Sweep the weight simplex for the best assignment. |
 | `evaluate_weights(rankings, relevant, weights, *, metric, top_k, key)` | Score one specific weight assignment. |
-| `recall_at_k` · `precision_at_k` · `ndcg_at_k` | Binary-relevance metrics at a cutoff. |
+| `recall_at_k` · `ndcg_at_k` | Binary-relevance metrics at a cutoff. |
+| `precision_at_k(retrieved, relevant, k, *, mode)` | Precision at a cutoff; `mode="trec"` divides by a fixed `k`. |
 | `reciprocal_rank` · `mean_reciprocal_rank` | Rank of the first relevant hit. |
 
 `rankings` accepts either `{"name": [...]}` or a plain sequence of lists (named `"0"`, `"1"`, …). `k` defaults to 60, the standard smoothing constant; larger values flatten the discount between adjacent ranks.
+
+### Two precisions at k
+
+Precision@k has two conventions, and they disagree whenever a retriever returns
+fewer than `k` documents — a re-ranked shortlist, a filtered search that ran dry.
+`mode` makes the choice explicit instead of silent:
+
+```python
+retrieved = ["sec-149", "sec-135", "sec-188"]  # three results for k=5
+relevant = {"sec-149", "sec-135"}
+
+precision_at_k(retrieved, relevant, k=5)  # 0.667 — divides by min(k, len(retrieved))
+precision_at_k(retrieved, relevant, k=5, mode="trec")  # 0.4 — divides by k
+```
+
+The default, `mode="retrieved"`, does not penalise a system for slots it never
+claimed to fill, which is the fairer comparison between retrievers whose list
+lengths differ. `mode="trec"` is what `trec_eval` reports, and what the numbers
+on a benchmark leaderboard were computed with: the two unfilled slots count as
+misses. The modes agree exactly once at least `k` distinct documents come back,
+so this only bites at the margin — but at the margin it moved the example above
+by 0.27, which is more than most reported improvements.
 
 ### Migrating off the duplicate-list trick
 

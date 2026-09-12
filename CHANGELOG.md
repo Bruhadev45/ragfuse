@@ -12,6 +12,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   objects a retriever returns instead of requiring a projection to ids first;
   the equal-weight baseline goes through the same `key`, so `improvement()`
   stays meaningful.
+- `precision_at_k(..., mode="trec")` divides by a fixed `k` instead of
+  `min(k, len(retrieved))`, so numbers can be made to line up with `trec_eval`
+  and the leaderboards computed with it. The default (`mode="retrieved"`) is
+  unchanged; `PRECISION_MODES` lists both, and the README explains when the two
+  conventions diverge.
 
 ## [0.1.1] - 2026-08-31
 
