@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ragfuse"
-version = "0.1.1"
+dynamic = ["version"]
 description = "Weighted Reciprocal Rank Fusion for hybrid retrieval, with provenance and no dependencies."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,6 +35,9 @@ Homepage = "https://github.com/Bruhadev45/ragfuse"
 Repository = "https://github.com/Bruhadev45/ragfuse"
 Issues = "https://github.com/Bruhadev45/ragfuse/issues"
 Changelog = "https://github.com/Bruhadev45/ragfuse/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+path = "src/ragfuse/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ragfuse"]

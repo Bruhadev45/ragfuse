@@ -3,13 +3,15 @@
 **Weighted Reciprocal Rank Fusion for hybrid retrieval.** Real per-retriever weights, provenance on every hit, zero dependencies.
 
 [![CI](https://github.com/Bruhadev45/ragfuse/actions/workflows/ci.yml/badge.svg)](https://github.com/Bruhadev45/ragfuse/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/ragfuse.svg)](https://pypi.org/project/ragfuse/)
-[![Python](https://img.shields.io/pypi/pyversions/ragfuse.svg)](https://pypi.org/project/ragfuse/)
+[![Release](https://img.shields.io/github/v/release/Bruhadev45/ragfuse)](https://github.com/Bruhadev45/ragfuse/releases)
+[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue.svg)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ```bash
-pip install ragfuse
+pip install "ragfuse @ git+https://github.com/Bruhadev45/ragfuse@v0.2.0"
 ```
+
+Not on PyPI: the `ragfuse` name there belongs to an unrelated package, so `pip install ragfuse` installs something else. Each [GitHub Release](https://github.com/Bruhadev45/ragfuse/releases) also carries the wheel and sdist.
 
 ---
 
@@ -162,11 +164,14 @@ Retrieval quality on specialist corpora is corpus-bound, not retriever-bound. A 
 | Function | Purpose |
 |---|---|
 | `reciprocal_rank_fusion(rankings, *, k, weights, key, top_k)` | Fuse ranked lists. Aliased as `rrf`. |
-| `tune_weights(rankings, relevant, *, metric, top_k, resolution, key)` | Sweep the weight simplex for the best assignment. |
-| `evaluate_weights(rankings, relevant, weights, *, metric, top_k, key)` | Score one specific weight assignment. |
+| `tune_weights(rankings, relevant, *, k, top_k, metric, resolution, key)` | Sweep the weight simplex for the best assignment. |
+| `evaluate_weights(rankings, relevant, weights, *, k, top_k, metric, key)` | Score one specific weight assignment. |
 | `recall_at_k` · `ndcg_at_k` | Binary-relevance metrics at a cutoff. |
 | `precision_at_k(retrieved, relevant, k, *, mode)` | Precision at a cutoff; `mode="trec"` divides by a fixed `k`. |
 | `reciprocal_rank` · `mean_reciprocal_rank` | Rank of the first relevant hit. |
+| `FusedHit` · `Contribution` | Frozen result types: a fused document and one retriever's share of its score. |
+| `WeightSearchResult` | What `tune_weights` returns: `weights`, `score`, `table`, `baseline_score`, `improvement()`. |
+| `DEFAULT_K` · `METRICS` · `PRECISION_MODES` | The default `k` (60), the metric names tuning accepts, and the two precision modes. |
 
 `rankings` accepts either `{"name": [...]}` or a plain sequence of lists (named `"0"`, `"1"`, …). `k` defaults to 60, the standard smoothing constant; larger values flatten the discount between adjacent ranks.
 
@@ -208,6 +213,11 @@ rrf({"bm25": bm25, "dense": dense}, weights={"bm25": 2})  # after, identical out
 - **Immutable results.** Frozen dataclasses, no accidental mutation of a shared ranking.
 - **Deterministic.** Ties break on document id rather than dict ordering.
 - **Explicit failures.** Negative weights, unknown retriever names, mismatched label counts, and objects with no `key` all raise on the spot with a message that says what to do.
+
+## Related
+
+- [atlas-ui](https://github.com/Bruhadev45/atlas-ui#retrievaltrace): React components for AI interfaces. Its `fromRagfuse` adapter maps serialised `FusedHit`s (snake_case or camelCase) onto `RetrievalTrace`, which renders each hit with its per-retriever rank and weight.
+- [rag-eval-lab](https://github.com/Bruhadev45/rag-eval-lab): the reproducible benchmark behind the numbers above, with paired significance tests over the same 120 queries.
 
 ## Development
 

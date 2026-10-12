@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-12
+
 ### Added
 - `tune_weights` and `evaluate_weights` accept `key=`, matching
   `reciprocal_rank_fusion`. Weight sweeps can now run over the document
@@ -17,6 +19,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and the leaderboards computed with it. The default (`mode="retrieved"`) is
   unchanged; `PRECISION_MODES` lists both, and the README explains when the two
   conventions diverge.
+
+### Changed
+- The version now lives only in `ragfuse.__version__`; `pyproject.toml` reads
+  it from there, so the two can no longer drift.
+- Releases are built by a `release.yml` workflow on `v*` tags: tests, sdist and
+  wheel, `twine check --strict`, a smoke install of the wheel that must report
+  the tagged version, then a GitHub Release with both files attached and this
+  changelog section as its notes.
+- README: install from the release tag. The `ragfuse` name on PyPI belongs to
+  an unrelated package, so `pip install ragfuse` does not install this library.
+  The API table now covers every public name, and a "Related" section links
+  atlas-ui's `fromRagfuse` adapter and rag-eval-lab.
 
 ## [0.1.1] - 2026-08-31
 
