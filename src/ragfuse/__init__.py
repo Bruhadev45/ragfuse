@@ -1,7 +1,8 @@
 """Weighted Reciprocal Rank Fusion for hybrid retrieval.
 
 Fuse the ranked lists from several retrievers into one, with real per-retriever
-weights, provenance on every hit, and no dependencies.
+weights, provenance on every hit, and no dependencies. Rank fusion (RRF) and
+score fusion (CombSUM, CombMNZ) share one input and output contract.
 
     >>> from ragfuse import rrf
     >>> hits = rrf(
@@ -24,6 +25,7 @@ from .metrics import (
     recall_at_k,
     reciprocal_rank,
 )
+from .score_fusion import NORMALIZATIONS, Normalization, combmnz, combsum
 from .tuning import METRICS, WeightSearchResult, evaluate_weights, tune_weights
 
 __version__ = "0.2.0"
@@ -31,11 +33,15 @@ __version__ = "0.2.0"
 __all__ = [
     "DEFAULT_K",
     "METRICS",
+    "NORMALIZATIONS",
     "PRECISION_MODES",
     "Contribution",
     "FusedHit",
+    "Normalization",
     "WeightSearchResult",
     "__version__",
+    "combmnz",
+    "combsum",
     "evaluate_weights",
     "mean_reciprocal_rank",
     "ndcg_at_k",

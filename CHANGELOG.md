@@ -6,6 +6,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- `combsum` and `combmnz`: score-based fusion beside RRF. Each takes ranked
+  `(document, score)` lists, normalises every list with
+  `normalize="minmax"` (default), `"zscore"` or `None`, and returns the same
+  `FusedHit`s under the same `weights=`/`key=` contract, so the fusions are
+  interchangeable. NaN and infinite scores are rejected; zero-weight
+  retrievers do not count towards CombMNZ's multiplier. `NORMALIZATIONS` lists
+  the accepted values. README: a "Which fusion?" comparison.
+
+### Changed
+- `FusedHit.normalized_score` is min-max scaled across the hits when a score
+  fusion leaves some totals negative (z-scores, raw logits). RRF scores are
+  never negative, so RRF output is unchanged.
+
 ## [0.2.0] - 2026-10-12
 
 ### Added

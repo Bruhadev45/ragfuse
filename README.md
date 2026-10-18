@@ -77,6 +77,34 @@ hits = rrf(
 hits[0].item  # the original object, from the retriever whose weighted contribution was largest
 ```
 
+## Which fusion?
+
+RRF fuses on rank alone. When your retrievers' scores mean something, CombSUM and CombMNZ fuse on the scores instead, after normalising each list onto a common scale. All three take the same `weights=` and `key=`, and return the same `FusedHit`s, so you can swap one for another and compare them on your own labels.
+
+```python
+from ragfuse import combmnz, combsum
+
+hits = combsum(
+    {
+        "bm25": [("sec-149", 12.4), ("sec-135", 9.1)],
+        "dense": [("sec-135", 0.82), ("sec-149", 0.80)],
+    },
+    weights={"bm25": 0.6, "dense": 0.4},
+    normalize="minmax",  # or "zscore", or None for scores already on one scale
+)
+```
+
+| | `rrf` | `combsum` | `combmnz` |
+|---|---|---|---|
+| Input per retriever | ranked documents | ranked `(document, score)` pairs | ranked `(document, score)` pairs |
+| Uses | rank only | normalised scores, summed | normalised scores, summed, times the number of retrievers that found the document |
+| Rewards agreement | implicitly | no (only via the sum) | explicitly |
+| Near-ties in a retriever | treated as a full rank apart | stay near-ties | stay near-ties |
+| Sensitive to score outliers | no | yes, through `minmax`/`zscore` | yes, and amplified for shared documents |
+| Reach for it when | scores are not comparable or not available | scores are calibrated and one retriever's confidence should count | scores are calibrated and agreement should count double |
+
+Normalisation is per list: `"minmax"` maps each list onto `0..1` (a constant list, or a single hit, maps to `1.0`); `"zscore"` centres and scales it (a constant list maps to `0.0`, and totals can go negative). NaN and infinite scores are rejected. Fed RRF's own `1 / (k + rank + 1)` scores with `normalize=None`, `combsum` returns exactly what `rrf` does; a test pins it. Which one wins on your data is an empirical question, so measure it with `ndcg_at_k` and friends before switching.
+
 ## Every hit explains itself
 
 When a hybrid retriever surfaces something strange, you need to know which half is responsible. Each hit carries its full provenance:
@@ -164,6 +192,7 @@ Retrieval quality on specialist corpora is corpus-bound, not retriever-bound. A 
 | Function | Purpose |
 |---|---|
 | `reciprocal_rank_fusion(rankings, *, k, weights, key, top_k)` | Fuse ranked lists. Aliased as `rrf`. |
+| `combsum(rankings, *, normalize, weights, key, top_k)` · `combmnz(...)` | Score-based fusion over `(document, score)` lists. |
 | `tune_weights(rankings, relevant, *, k, top_k, metric, resolution, key)` | Sweep the weight simplex for the best assignment. |
 | `evaluate_weights(rankings, relevant, weights, *, k, top_k, metric, key)` | Score one specific weight assignment. |
 | `recall_at_k` · `ndcg_at_k` | Binary-relevance metrics at a cutoff. |
@@ -171,7 +200,7 @@ Retrieval quality on specialist corpora is corpus-bound, not retriever-bound. A 
 | `reciprocal_rank` · `mean_reciprocal_rank` | Rank of the first relevant hit. |
 | `FusedHit` · `Contribution` | Frozen result types: a fused document and one retriever's share of its score. |
 | `WeightSearchResult` | What `tune_weights` returns: `weights`, `score`, `table`, `baseline_score`, `improvement()`. |
-| `DEFAULT_K` · `METRICS` · `PRECISION_MODES` | The default `k` (60), the metric names tuning accepts, and the two precision modes. |
+| `DEFAULT_K` · `METRICS` · `PRECISION_MODES` · `NORMALIZATIONS` | The default `k` (60), the metric names tuning accepts, the two precision modes, and the score normalisations. |
 
 `rankings` accepts either `{"name": [...]}` or a plain sequence of lists (named `"0"`, `"1"`, …). `k` defaults to 60, the standard smoothing constant; larger values flatten the discount between adjacent ranks.
 

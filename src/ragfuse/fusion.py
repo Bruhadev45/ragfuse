@@ -93,6 +93,18 @@ def _as_weight_map(
     return resolved
 
 
+def _document_key(document: Any, source: str, key: Callable[[Any], str] | None) -> str:
+    """Identify ``document`` with ``key``, or as itself when it is a string."""
+    if key is not None:
+        return key(document)
+    if isinstance(document, str):
+        return document
+    raise TypeError(
+        f"document in ranking {source!r} is {type(document).__name__}, not str; "
+        "pass key= to tell ragfuse how to identify documents"
+    )
+
+
 def reciprocal_rank_fusion(
     rankings: Rankings[T],
     *,
@@ -146,16 +158,6 @@ def reciprocal_rank_fusion(
     named = _as_named_rankings(rankings)
     weight_map = _as_weight_map(weights, list(named))
 
-    def extract(document: Any, source: str) -> str:
-        if key is not None:
-            return key(document)
-        if isinstance(document, str):
-            return document
-        raise TypeError(
-            f"document in ranking {source!r} is {type(document).__name__}, not str; "
-            "pass key= to tell ragfuse how to identify documents"
-        )
-
     totals: dict[str, float] = {}
     contributions: dict[str, list[Contribution]] = {}
     best_item: dict[str, tuple[float, Any]] = {}
@@ -165,7 +167,7 @@ def reciprocal_rank_fusion(
         seen_in_this_ranking: set[str] = set()
 
         for document in ranking:
-            doc_key = extract(document, source)
+            doc_key = _document_key(document, source, key)
             # A document repeated inside one list must not be counted twice;
             # its best (earliest) rank is the one that carries information.
             # Rank is the position among *unique* documents, so a skipped
@@ -184,17 +186,42 @@ def reciprocal_rank_fusion(
             if doc_key not in best_item or score > best_item[doc_key][0]:
                 best_item[doc_key] = (score, document)
 
+    return _assemble_hits(totals, contributions, best_item, top_k)
+
+
+def _relative(score: float, top: float, lowest: float) -> float:
+    """Place ``score`` in ``0..1`` relative to the top fused score.
+
+    Non-negative scores (every RRF score) are divided by the top one. Score
+    fusion can produce negative totals (z-scores, raw logits), where a ratio
+    stops meaning anything, so those rankings are min-max scaled instead.
+    """
+    if lowest >= 0:
+        return score / top if top > 0 else 0.0
+    if top == lowest:
+        return 1.0
+    return (score - lowest) / (top - lowest)
+
+
+def _assemble_hits(
+    totals: Mapping[str, float],
+    contributions: Mapping[str, Sequence[Contribution]],
+    best_item: Mapping[str, tuple[float, Any]],
+    top_k: int | None,
+) -> list[FusedHit]:
+    """Order fused totals into hits, ties broken on key, truncated to ``top_k``."""
     if not totals:
         return []
 
     ordered_keys = sorted(totals, key=lambda doc_key: (-totals[doc_key], doc_key))
     top_score = totals[ordered_keys[0]]
+    lowest = totals[ordered_keys[-1]]
 
     hits = [
         FusedHit(
             key=doc_key,
             score=totals[doc_key],
-            normalized_score=(totals[doc_key] / top_score) if top_score > 0 else 0.0,
+            normalized_score=_relative(totals[doc_key], top_score, lowest),
             contributions=tuple(sorted(contributions[doc_key], key=lambda c: (-c.score, c.source))),
             item=best_item[doc_key][1],
         )

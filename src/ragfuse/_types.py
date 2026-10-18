@@ -16,7 +16,9 @@ class Contribution:
         source: Name of the retriever this contribution came from.
         rank: Zero-indexed position the document held in that retriever's list.
         weight: Weight applied to that retriever during fusion.
-        score: The weighted RRF term, ``weight / (k + rank + 1)``.
+        score: The weighted term this retriever added: ``weight / (k + rank + 1)``
+            for RRF, ``weight`` times the normalised retriever score for
+            CombSUM and CombMNZ.
     """
 
     source: str
@@ -31,8 +33,11 @@ class FusedHit:
 
     Attributes:
         key: Stable identifier the document was fused on.
-        score: Sum of every weighted RRF term for this document.
-        normalized_score: ``score`` divided by the top hit's score, in ``0..1``.
+        score: The fused score: the sum of every contribution (times the
+            number of retrievers that found the document, for CombMNZ).
+        normalized_score: ``score`` relative to the top hit, in ``0..1``:
+            divided by the top score, or min-max scaled across the hits when
+            score fusion left some totals negative.
         contributions: Per-retriever detail, ordered by descending contribution.
         item: The original object, taken from the retriever that contributed most.
     """
