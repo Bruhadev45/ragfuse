@@ -13,12 +13,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `FusedHit`s under the same `weights=`/`key=` contract, so the fusions are
   interchangeable. NaN and infinite scores are rejected; zero-weight
   retrievers do not count towards CombMNZ's multiplier. `NORMALIZATIONS` lists
-  the accepted values. README: a "Which fusion?" comparison.
+  the accepted values and `Normalization` is their type. README: a "Which
+  fusion?" comparison.
 
 ### Changed
 - `FusedHit.normalized_score` is min-max scaled across the hits when a score
   fusion leaves some totals negative (z-scores, raw logits). RRF scores are
   never negative, so RRF output is unchanged.
+- README: install, use-when, limitations, input and output, and the API table
+  now come before the analysis. It says that v0.2.0 lacks `combsum` and
+  `combmnz`, and it reports that the hybrid MRR gain did not replicate on
+  rag-eval-lab's wider 204-query set. The migration and precision examples now
+  run as printed. `tests/test_readme.py` runs the examples and checks the
+  install tag, the API table, the *(main only)* marks and the in-page links.
 
 ## [0.2.0] - 2026-10-12
 

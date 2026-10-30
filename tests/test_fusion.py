@@ -84,7 +84,7 @@ class TestWeighting:
         assert tilted[0].score > tilted[1].score
 
     def test_duplicating_a_list_equals_weight_two(self) -> None:
-        """Weight 2.0 reproduces the old trick exactly, so migration is safe."""
+        """Weight 2.0 reproduces the old trick: same order, scores equal up to float rounding."""
         hack = reciprocal_rank_fusion(
             {"bm25": ["a", "b"], "bm25_again": ["a", "b"], "dense": ["b", "a"]}
         )
