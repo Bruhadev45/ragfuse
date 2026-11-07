@@ -22,7 +22,7 @@ Not on PyPI. The `ragfuse` project on PyPI is an unrelated document-loading pack
 **v0.2.0 does not include `combsum`, `combmnz`, `fuse` or `rerank`.** They are on `main` and not yet released; the [API](#api) table marks them *(main only)*. To use them, install the commit below, which is pinned so the install stays reproducible. It still reports version 0.2.0, as `main` will until the next release.
 
 ```bash
-pip install "ragfuse @ git+https://github.com/Bruhadev45/ragfuse@79b5dff326ea50b291c4eb2fb41b5e545ba476a8"
+pip install "ragfuse @ git+https://github.com/Bruhadev45/ragfuse@b447cc365f5a4d9f5cbcbb647592ca95582a0bff"
 ```
 
 ## Quickstart
