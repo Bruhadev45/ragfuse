@@ -2,7 +2,8 @@
 
 Fuse the ranked lists from several retrievers into one, with real per-retriever
 weights, provenance on every hit, and no dependencies. Rank fusion (RRF) and
-score fusion (CombSUM, CombMNZ) share one input and output contract.
+score fusion (CombSUM, CombMNZ) share one input and output contract, and
+``fuse``/``rerank`` trace both stages for a pipeline with access rules.
 
     >>> from ragfuse import rrf
     >>> hits = rrf(
@@ -25,6 +26,14 @@ from .metrics import (
     recall_at_k,
     reciprocal_rank,
 )
+from .provenance import (
+    Candidate,
+    FusionTrace,
+    IneligibleCandidateError,
+    SourceTrace,
+    fuse,
+    rerank,
+)
 from .score_fusion import NORMALIZATIONS, Normalization, combmnz, combsum
 from .tuning import METRICS, WeightSearchResult, evaluate_weights, tune_weights
 
@@ -35,20 +44,26 @@ __all__ = [
     "METRICS",
     "NORMALIZATIONS",
     "PRECISION_MODES",
+    "Candidate",
     "Contribution",
     "FusedHit",
+    "FusionTrace",
+    "IneligibleCandidateError",
     "Normalization",
+    "SourceTrace",
     "WeightSearchResult",
     "__version__",
     "combmnz",
     "combsum",
     "evaluate_weights",
+    "fuse",
     "mean_reciprocal_rank",
     "ndcg_at_k",
     "precision_at_k",
     "recall_at_k",
     "reciprocal_rank",
     "reciprocal_rank_fusion",
+    "rerank",
     "rrf",
     "tune_weights",
 ]

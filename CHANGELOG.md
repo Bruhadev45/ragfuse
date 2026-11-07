@@ -15,6 +15,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   retrievers do not count towards CombMNZ's multiplier. `NORMALIZATIONS` lists
   the accepted values and `Normalization` is their type. README: a "Which
   fusion?" comparison.
+- `fuse` and `rerank`: fusion and reranking with a checked audit trail. `fuse`
+  runs `rrf`, `combsum` or `combmnz` on named `(document, score)` lists and
+  returns a `FusionTrace`. Each `Candidate` lists every retriever as a
+  `SourceTrace`, with rank, raw score, the value fusion used, weight and
+  contribution, including the retrievers that missed it. Ids and names must
+  be plain non-empty strings, scores finite and lists best-first, and the
+  result does not depend on the mapping's order. `eligible=` makes any other id
+  fail the call. `rerank` reorders the candidates by your scores and raises
+  `IneligibleCandidateError` for a score on anything else, so reranking can
+  reorder or cut candidates but never add one. Error messages leave out the
+  offending ids. README: "Trace fusion and reranking".
 
 ### Changed
 - `FusedHit.normalized_score` is min-max scaled across the hits when a score
@@ -26,6 +37,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rag-eval-lab's wider 204-query set. The migration and precision examples now
   run as printed. `tests/test_readme.py` runs the examples and checks the
   install tag, the API table, the *(main only)* marks and the in-page links.
+
+### Fixed
+- Infinite weights are rejected. They used to give infinite scores and a NaN
+  `normalized_score`.
+- Fused totals that overflow, or that lie too far apart to normalise, raise a
+  `ValueError` instead of coming back as `inf` or `NaN`.
 
 ## [0.2.0] - 2026-10-12
 

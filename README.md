@@ -19,7 +19,7 @@ This needs Python 3.10 or newer and installs nothing else. On an older Python, p
 
 Not on PyPI. The `ragfuse` project on PyPI is an unrelated document-loading package (checked 2026-10-30), so installing `ragfuse` by name from PyPI gets something else.
 
-**v0.2.0 does not include `combsum` or `combmnz`.** They are on `main` and not yet released. To use them, install the commit that added them; it is pinned so the install stays reproducible. It still reports version 0.2.0, as `main` will until the next release.
+**v0.2.0 does not include `combsum`, `combmnz`, `fuse` or `rerank`.** They are on `main` and not yet released; the [API](#api) table marks them *(main only)*. To use them, install the commit below, which is pinned so the install stays reproducible. It still reports version 0.2.0, as `main` will until the next release.
 
 ```bash
 pip install "ragfuse @ git+https://github.com/Bruhadev45/ragfuse@79b5dff326ea50b291c4eb2fb41b5e545ba476a8"
@@ -69,15 +69,16 @@ hits[0].item  # the original object, from the retriever whose weighted contribut
 - You want to say how much each retriever counts, as a float, and keep that weighting visible in the code.
 - You need to see, for each result, which retriever found it and at what rank. That helps when debugging, building a UI, or writing an evaluation report.
 - You have labelled queries and want to choose weights from them, with the metrics to check that choice.
+- You need one record of every retriever's rank and score from fusion through reranking, and a reranker that can only reorder candidates your access rules let through.
 
 ## Limitations
 
-- It fuses lists. It does not retrieve, embed, index or rerank; you bring the ranked results.
+- It fuses lists. It does not retrieve, embed or index, and it runs no reranker model; `rerank` orders fused candidates by scores you bring.
 - It works in memory, one query at a time, in pure Python. Its speed has not been benchmarked.
 - The metrics use binary relevance: a document is either relevant or not. There is no graded nDCG.
 - `tune_weights` sweeps a grid of weights and refuses grids over 200,000 combinations. With few labelled queries, the best weights may only fit noise, so check them on queries you did not tune on.
 - Fusion does not always help. [Below](#does-weighted-fusion-actually-help), it raised MRR on 120 human-verified legal queries, but the gain did not replicate on a wider query set. Measure on your own data.
-- It is not on PyPI, and v0.2.0 lacks `combsum` and `combmnz` (see [Install](#install)).
+- It is not on PyPI, and v0.2.0 lacks the names marked *(main only)* (see [Install](#install)).
 
 ## Input and output
 
@@ -113,6 +114,10 @@ Everything imports from `ragfuse`. Names marked *(main only)* are not in v0.2.0.
 | `reciprocal_rank_fusion(rankings, *, k, weights, key, top_k)`, alias `rrf` | Fuses ranked lists by rank. | [Quickstart](#quickstart), [Why weighted RRF](#why-weighted-rrf) |
 | `combsum(rankings, *, normalize, weights, key, top_k)` · `combmnz(...)` *(main only)* | Fuses `(document, score)` lists by normalised score. | [Which fusion?](#which-fusion) |
 | `FusedHit` · `Contribution` | Frozen result types: a fused document, and one retriever's share of its score. | [Every hit explains itself](#every-hit-explains-itself) |
+| `fuse(rankings, *, method, weights, k, normalize, key, eligible, top_k)` *(main only)* | Runs `rrf`, `combsum` or `combmnz` on checked `(document, score)` lists and traces every retriever. | [Trace fusion and reranking](#trace-fusion-and-reranking) |
+| `rerank(trace, scores, *, top_k)` *(main only)* | Reorders a trace's candidates by your reranker's scores; refuses any other id. | [Trace fusion and reranking](#trace-fusion-and-reranking) |
+| `FusionTrace` · `Candidate` · `SourceTrace` *(main only)* | Frozen records: the run's parameters, each candidate, and each retriever's part in it. | [Trace fusion and reranking](#trace-fusion-and-reranking) |
+| `IneligibleCandidateError` *(main only)* | A `ValueError` for an id outside `eligible=` or outside the fused candidates. | [Trace fusion and reranking](#trace-fusion-and-reranking) |
 | `tune_weights(rankings, relevant, *, k, top_k, metric, resolution, key)` | Sweeps the weight simplex for the best assignment. | [Choosing weights from evidence](#choosing-weights-from-evidence) |
 | `evaluate_weights(rankings, relevant, weights, *, k, top_k, metric, key)` | Scores one specific weight assignment. | [Choosing weights from evidence](#choosing-weights-from-evidence) |
 | `WeightSearchResult` | What `tune_weights` returns: `weights`, `score`, `table`, `baseline_score`, `improvement()`. | [Choosing weights from evidence](#choosing-weights-from-evidence) |
@@ -214,6 +219,53 @@ for c in hit.contributions:
 ```
 
 Results are immutable, and ties break on document id, so the same inputs always produce the same ordering — which matters more than it sounds when you are trying to reproduce a benchmark run.
+
+## Trace fusion and reranking
+
+A pipeline with access rules needs more than a fused order. It needs to show where each candidate came from, and to know that no later stage brought in a document the rules excluded. `fuse` runs one of the three fusions and returns a `FusionTrace`. `rerank` then reorders that trace's candidates by scores your reranker produced.
+
+```python
+from ragfuse import IneligibleCandidateError, fuse, rerank
+
+trace = fuse(
+    {
+        "bm25": [("act-12#s4", 9.0), ("act-12#s7", 6.5), ("reg-3#s2", 2.0)],
+        "dense": [("reg-3#s2", 0.91), ("act-12#s4", 0.88)],
+    },
+    weights={"bm25": 0.6, "dense": 0.4},
+    eligible={"act-12#s4", "act-12#s7", "reg-3#s2"},  # what this caller may see
+    top_k=3,
+)
+for c in trace.candidates:
+    print(c.key, [(t.source, t.rank, t.raw_score) for t in c.retrievers])
+
+# Scores from your reranker, keyed by id. It may reorder or cut the shortlist.
+reranked = rerank(trace, {"act-12#s4": 1.2, "act-12#s7": -0.4, "reg-3#s2": 2.3})
+print(reranked.keys, [c.fused_rank for c in reranked.candidates])
+
+try:  # but it may not add to it
+    rerank(trace, {**dict.fromkeys(trace.keys, 0.0), "tenant-b#s1": 9.9})
+except IneligibleCandidateError as error:
+    print(error)
+```
+
+```
+act-12#s4 [('bm25', 0, 9.0), ('dense', 1, 0.88)]
+reg-3#s2 [('bm25', 2, 2.0), ('dense', 0, 0.91)]
+act-12#s7 [('bm25', 1, 6.5), ('dense', None, None)]
+('reg-3#s2', 'act-12#s4', 'act-12#s7') [1, 0, 2]
+the reranker scored 1 document(s) that are not candidates of this fusion; reranking can reorder or cut the candidates, never add to them
+```
+
+Each candidate's `retrievers` lists every retriever by name, including those that did not return it. Each entry carries `rank`, `raw_score`, `value` (the RRF term or the normalised score), `weight` and `contribution`. After `rerank`, a candidate also keeps its `fused_rank`, `fused_score` and `normalized_score`, and gains `rerank_score`. The trace records the method, `k` or `normalize`, and the resolved weights.
+
+`fuse` is stricter than the functions it wraps:
+
+- Every list holds `(document, score)` pairs, best first. RRF records the scores but fuses on rank. A score must be a finite real number, not a `bool` or a string, and no score may exceed the one before it, so negate distances.
+- Retrievers need names. Every id and name must be a non-empty `str` with no surrounding whitespace or control characters. `key=` is called once per entry. Retrievers are fused in name order, so the mapping's order cannot change the result.
+- With `eligible=`, an id outside the set fails the whole call. `rerank` needs a score for every candidate and for nothing else. The errors give counts and positions, never the offending ids, so another tenant's id does not end up in your logs.
+
+This checks that a stage stays inside the candidate set it was given. It does not decide what is eligible, and it does not check whether a reranker is any good. On rag-eval-lab's benchmark a general-purpose reranker [made results worse](#does-weighted-fusion-actually-help).
 
 ## Choosing weights from evidence
 

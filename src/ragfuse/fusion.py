@@ -20,7 +20,7 @@ weights, and silently breaks as soon as you want 0.6/0.4.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from math import isnan
+from math import isfinite, isinf, isnan
 from typing import Any, TypeVar
 
 from ._types import Contribution, FusedHit
@@ -84,6 +84,8 @@ def _as_weight_map(
         # false), so reject it explicitly rather than corrupt every score.
         if isnan(weight):
             raise ValueError(f"weight for {name!r} is NaN; weights must be finite and >= 0")
+        if isinf(weight):
+            raise ValueError(f"weight for {name!r} is infinite; weights must be finite and >= 0")
         if weight < 0:
             raise ValueError(f"weight for {name!r} is negative ({weight}); weights must be >= 0")
 
@@ -213,9 +215,15 @@ def _assemble_hits(
     if not totals:
         return []
 
+    # Finite inputs can still overflow once weighted and summed, and an inf or
+    # NaN total would sort arbitrarily and poison normalized_score.
+    if not all(isfinite(total) for total in totals.values()):
+        raise ValueError("a fused score is not finite: the scores or weights overflowed")
     ordered_keys = sorted(totals, key=lambda doc_key: (-totals[doc_key], doc_key))
     top_score = totals[ordered_keys[0]]
     lowest = totals[ordered_keys[-1]]
+    if not isfinite(top_score - lowest):
+        raise ValueError("fused scores span more than a float can hold; scale the scores down")
 
     hits = [
         FusedHit(

@@ -213,6 +213,20 @@ class TestValidation:
         with pytest.raises(ValueError, match="must be finite"):
             combsum({"r": [("a", 1.0), ("b", bad)]})
 
+    def test_finite_scores_that_overflow_when_summed_are_rejected(self) -> None:
+        # Each score is finite; their raw sum is inf, which used to come back as
+        # score=inf with normalized_score=nan.
+        rankings = {"a": [("x", 1e308), ("y", 1.0)], "b": [("x", 1e308)]}
+        with pytest.raises(ValueError, match="not finite"):
+            combsum(rankings, normalize=None)
+
+    def test_totals_too_far_apart_to_normalise_are_rejected(self) -> None:
+        # Both totals are finite, but top - lowest overflows, so min-max scaling
+        # them would divide inf by inf.
+        rankings = {"a": [("x", 1.5e308), ("y", -1.5e308)]}
+        with pytest.raises(ValueError, match="span more than a float"):
+            combsum(rankings, normalize=None)
+
     def test_non_numeric_score_is_rejected(self) -> None:
         with pytest.raises(TypeError, match="not a number"):
             combsum({"r": [("a", "high")]})  # type: ignore[list-item]

@@ -152,6 +152,11 @@ def test_provenance_example_continues_from_the_quickstart() -> None:
     assert run(f"{quickstart}\n{code}") == quickstart_output + output
 
 
+def test_trace_example_prints_the_output_shown_under_it() -> None:
+    code, output = example_and_output("## Trace fusion and reranking")
+    assert run(code) == output
+
+
 @pytest.mark.parametrize(
     "heading",
     ["### Migrating off the duplicate-list trick", "## Which fusion?", "### Two precisions at k"],
