@@ -20,12 +20,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   returns a `FusionTrace`. Each `Candidate` lists every retriever as a
   `SourceTrace`, with rank, raw score, the value fusion used, weight and
   contribution, including the retrievers that missed it. Ids and names must
-  be plain non-empty strings, scores finite and lists best-first, and the
-  result does not depend on the mapping's order. `eligible=` makes any other id
-  fail the call. `rerank` reorders the candidates by your scores and raises
-  `IneligibleCandidateError` for a score on anything else, so reranking can
-  reorder or cut candidates but never add one. Error messages leave out the
-  offending ids. README: "Trace fusion and reranking".
+  be exact non-empty strings, scores finite and lists best-first, and weights
+  a mapping, so the result does not depend on the mapping's order.
+  `eligible=` makes any other id fail the call. `rerank` reorders the
+  candidates by your scores and raises `IneligibleCandidateError` for a score
+  on anything else, so reranking can reorder or cut candidates but never add
+  one. Given `eligible=` too, it re-checks the trace itself. Error messages
+  leave out the offending ids. Documents (`item`) are not validated and are
+  left out of `repr`. README: "Trace fusion and reranking".
 
 ### Changed
 - `FusedHit.normalized_score` is min-max scaled across the hits when a score
@@ -39,8 +41,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   install tag, the API table, the *(main only)* marks and the in-page links.
 
 ### Fixed
-- Infinite weights are rejected. They used to give infinite scores and a NaN
-  `normalized_score`.
+- Infinite weights, including ints too large for a float, are rejected. They
+  used to give infinite scores and a NaN `normalized_score`, or an
+  `OverflowError`.
 - Fused totals that overflow, or that lie too far apart to normalise, raise a
   `ValueError` instead of coming back as `inf` or `NaN`.
 

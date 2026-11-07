@@ -20,7 +20,7 @@ weights, and silently breaks as soon as you want 0.6/0.4.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from math import isfinite, isinf, isnan
+from math import inf, isfinite, isinf, isnan
 from typing import Any, TypeVar
 
 from ._types import Contribution, FusedHit
@@ -55,6 +55,14 @@ def _as_named_rankings(rankings: Rankings[T]) -> dict[str, Sequence[T]]:
     return named
 
 
+def _as_float(value: Any) -> float:
+    """``float(value)``, with an int beyond float range as a signed infinity."""
+    try:
+        return float(value)
+    except OverflowError:  # e.g. 10**400, which float() refuses outright
+        return inf if value > 0 else -inf
+
+
 def _as_weight_map(
     weights: Weights | None,
     names: Sequence[str],
@@ -70,14 +78,14 @@ def _as_weight_map(
                 f"weights reference unknown rankings: {sorted(unknown)}; "
                 f"known rankings are {sorted(names)}"
             )
-        resolved = {name: float(weights.get(name, 1.0)) for name in names}
+        resolved = {name: _as_float(weights.get(name, 1.0)) for name in names}
     else:
         if len(weights) != len(names):
             raise ValueError(
                 f"got {len(weights)} weights for {len(names)} rankings; "
                 "pass a mapping if you only want to weight some of them"
             )
-        resolved = {name: float(w) for name, w in zip(names, weights, strict=True)}
+        resolved = {name: _as_float(w) for name, w in zip(names, weights, strict=True)}
 
     for name, weight in resolved.items():
         # NaN slips past both comparisons below (NaN < 0 and NaN == 0 are

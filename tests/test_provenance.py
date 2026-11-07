@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import itertools
-from dataclasses import FrozenInstanceError
+from collections.abc import Iterator, Mapping
+from dataclasses import FrozenInstanceError, replace
 from typing import Any
 
 import pytest
@@ -54,6 +55,18 @@ class TestFusionMatchesTheExistingApis:
                 name: (t.rank, t.contribution) for name, t in present.items()
             }
 
+    @pytest.mark.parametrize("weight", [0.1, 0.3, 0.7])
+    def test_contributions_are_exactly_the_fusions_terms(self, weight: float) -> None:
+        weights = {"bm25": weight, "dense": 1 - weight}
+        for candidate in fuse(RANKINGS, weights=weights, k=60).candidates:
+            for t in candidate.retrievers:
+                if t.rank is not None:
+                    assert t.contribution == t.weight / (60 + t.rank + 1)
+        for candidate in fuse(RANKINGS, method="combsum", weights=weights).candidates:
+            for t in candidate.retrievers:
+                if t.value is not None:
+                    assert t.contribution == t.weight * t.value
+
     def test_effective_parameters_are_recorded(self) -> None:
         ranked = fuse(RANKINGS, k=10, normalize="zscore")
         scored = fuse(RANKINGS, method="combsum", k=10, normalize="zscore")
@@ -91,6 +104,11 @@ class TestEveryRetrieverIsAccountedFor:
             total = sum(t.contribution for t in found)
             assert candidate.fused_score == pytest.approx(total * len(found))
 
+    def test_a_zero_weight_retriever_is_traced_but_adds_nothing(self) -> None:
+        trace = fuse(RANKINGS, method="combsum", weights={"dense": 0})
+        dense = trace.candidates[trace.keys.index("act-9@v1#s1")].retrievers[1]
+        assert (dense.rank, dense.raw_score, dense.weight, dense.contribution) == (2, 0.40, 0, 0.0)
+
     def test_a_repeat_counts_once_at_its_first_position(self) -> None:
         trace = fuse({"r": [("a", 3.0), ("b", 2.0), ("a", 1.0)]})
         assert [
@@ -105,25 +123,28 @@ class TestEveryRetrieverIsAccountedFor:
             "bm25": [({"id": "a", "text": "x"}, 1.0)],
             "dense": [({"id": "a", "text": "x"}, 0.5)],
         }
-        trace = fuse(docs, key=lambda doc: doc["id"])
+        trace = fuse(docs, key=lambda doc: doc["id"], eligible={"a"})
         assert trace.candidates[0].item == {"id": "a", "text": "x"}
         hash(trace)  # an unhashable item must not make the trace unhashable
+        assert "text" not in repr(trace)  # logging a trace does not dump documents
 
     def test_results_are_frozen(self) -> None:
         trace = fuse(RANKINGS)
         with pytest.raises(FrozenInstanceError):
             trace.candidates[0].rank = 5  # type: ignore[misc]
+        assert not hasattr(trace.candidates[0], "__dict__")
 
 
 class TestStableIds:
     def test_mapping_order_does_not_change_the_trace(self) -> None:
-        traces = {
-            fuse(dict(order), method="combmnz")
-            for order in itertools.permutations(
-                {"bm25": BM25, "dense": DENSE, "sparse": [("act-9@v1#s1", 3.0)]}.items()
-            )
-        }
-        assert len(traces) == 1
+        lists = {"zeta": BM25, "alpha": DENSE, "mid": [("act-9@v1#s1", 3.0)]}
+        for method in ("rrf", "combmnz"):
+            traces = {
+                fuse(dict(order), method=method, weights={"zeta": 0.3, "mid": 2.0}, key=str.strip)
+                for order in itertools.permutations(lists.items())
+            }
+            assert len(traces) == 1
+            assert next(iter(traces)).weights == (("alpha", 1.0), ("mid", 2.0), ("zeta", 0.3))
 
     def test_key_is_called_once_per_entry(self) -> None:
         calls: list[str] = []
@@ -135,10 +156,9 @@ class TestStableIds:
         fuse({"r": [({"id": "a"}, 2.0), ({"id": "b"}, 1.0)], "s": [({"id": "a"}, 1.0)]}, key=key)
         assert sorted(calls) == ["a", "a", "b"]
 
-    def test_sequence_weights_follow_the_mapping_order(self) -> None:
-        trace = fuse({"zeta": [("a", 1.0)], "alpha": [("b", 1.0)]}, weights=[3.0, 1.0])
-        assert trace.weights == (("alpha", 1.0), ("zeta", 3.0))
-        assert trace.keys == ("a", "b")
+    def test_weights_must_be_a_mapping(self) -> None:
+        with pytest.raises(TypeError, match="must map retriever names"):
+            fuse({"zeta": [("a", 1.0)], "alpha": [("b", 1.0)]}, weights=[3.0, 1.0])
 
     @pytest.mark.parametrize("bad", ["", " a", "a\n", "a\x00b", chr(0xA0)])
     def test_malformed_document_ids_are_rejected(self, bad: str) -> None:
@@ -153,8 +173,14 @@ class TestStableIds:
         class Id(str):
             pass
 
-        with pytest.raises(TypeError, match="must be a str, got Id"):
+        with pytest.raises(TypeError, match="must be an exact str, got 'Id'"):
             fuse({"r": [("a", 1.0)]}, key=Id)
+
+    def test_a_hostile_type_name_cannot_forge_a_message_line(self) -> None:
+        forged = type("x\nERROR forged", (), {})()
+        with pytest.raises(TypeError) as raised:
+            fuse({"r": [(forged, 1.0)]})
+        assert "\n" not in str(raised.value)
 
     @pytest.mark.parametrize("bad", ["", "bm25 ", "a\tb"])
     def test_malformed_retriever_names_are_rejected(self, bad: str) -> None:
@@ -168,9 +194,14 @@ class TestCheckedScores:
         with pytest.raises(TypeError, match="real number"):
             fuse({"r": [("a", bad)]})  # type: ignore[list-item]
 
-    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), 10**400])
-    def test_non_finite_scores_are_rejected(self, bad: float) -> None:
-        with pytest.raises(ValueError, match="must be finite"):
+    @pytest.mark.parametrize(
+        ("bad", "shown"),
+        [(float("nan"), "nan"), (float("inf"), "inf"), (float("-inf"), "-inf"),
+         (10**400, "inf"), (-(10**400), "-inf")],
+        ids=["nan", "inf", "-inf", "10**400", "-10**400"],
+    )  # fmt: skip
+    def test_non_finite_scores_are_rejected(self, bad: float, shown: str) -> None:
+        with pytest.raises(ValueError, match=f"must be finite, got {shown}$"):
             fuse({"r": [("a", 2.0), ("b", bad)]})
 
     def test_lists_must_be_best_first(self) -> None:
@@ -186,8 +217,9 @@ class TestCheckedScores:
             fuse({"r": [entry]})  # type: ignore[list-item]
 
     def test_overflowing_weights_and_sums_are_rejected(self) -> None:
-        with pytest.raises(ValueError, match="infinite"):
-            fuse(RANKINGS, weights={"bm25": float("inf")})
+        for bad in (float("inf"), 10**400):
+            with pytest.raises(ValueError, match="infinite"):
+                fuse(RANKINGS, weights={"bm25": bad})
         with pytest.raises(ValueError, match="not finite"):
             fuse({"a": [("x", 1e308)], "b": [("x", 1e308)]}, method="combsum", normalize=None)
 
@@ -213,13 +245,26 @@ class TestArguments:
         with pytest.raises(TypeError, match="must be a sequence"):
             fuse({"r": "abc"})  # type: ignore[dict-item]
 
+    @pytest.mark.parametrize(
+        "bad",
+        [0, -1, 2.5, True, 2**53 + 1, 10**400],
+        ids=["0", "-1", "2.5", "True", "2**53+1", "10**400"],
+    )
+    def test_rrf_k_must_be_a_positive_int(self, bad: object) -> None:
+        with pytest.raises(ValueError, match="k must be a positive int"):
+            fuse(RANKINGS, k=bad)  # type: ignore[arg-type]
+
+    def test_score_fusion_ignores_k(self) -> None:
+        assert fuse(RANKINGS, method="combsum", k=0).k is None
+
+    @pytest.mark.parametrize("bad", [-1, True, 1.5])
+    def test_top_k_must_be_a_non_negative_int(self, bad: object) -> None:
+        with pytest.raises(ValueError, match="top_k must be a non-negative int"):
+            fuse(RANKINGS, top_k=bad)  # type: ignore[arg-type]
+
     def test_fusion_errors_pass_through(self) -> None:
-        with pytest.raises(ValueError, match="k must be positive"):
-            fuse(RANKINGS, k=0)
         with pytest.raises(ValueError, match="normalize must be one of"):
             fuse(RANKINGS, method="combsum", normalize="softmax")  # type: ignore[arg-type]
-        with pytest.raises(ValueError, match="top_k"):
-            fuse(RANKINGS, top_k=-1)
 
     def test_top_k_cuts_the_shortlist(self) -> None:
         assert fuse(RANKINGS, top_k=2).keys == fuse(RANKINGS).keys[:2]
@@ -235,6 +280,16 @@ class TestEligibility:
         with pytest.raises(IneligibleCandidateError, match="'dense' position 3") as raised:
             fuse(leaked, eligible=ELIGIBLE)
         assert OTHER_TENANT not in str(raised.value)
+
+    @pytest.mark.parametrize("entry", [(OTHER_TENANT, float("nan")), (OTHER_TENANT + "\n", 1.0)])
+    def test_a_leak_is_reported_as_one_even_when_malformed(self, entry: tuple[str, float]) -> None:
+        with pytest.raises(IneligibleCandidateError):
+            fuse({"bm25": [*BM25, entry]}, eligible=ELIGIBLE)
+
+    def test_eligible_applies_to_the_ids_key_returns(self) -> None:
+        docs = {"r": [({"id": "act-12@v2#s4"}, 1.0), ({"id": OTHER_TENANT}, 0.5)]}
+        with pytest.raises(IneligibleCandidateError, match="position 1"):
+            fuse(docs, key=lambda doc: doc["id"], eligible=ELIGIBLE)
 
     def test_an_empty_eligible_set_admits_nothing(self) -> None:
         with pytest.raises(IneligibleCandidateError):
@@ -268,8 +323,10 @@ class TestRerank:
 
     def test_ties_keep_the_fused_order_and_top_k_cuts(self) -> None:
         fused = fuse(RANKINGS)
-        reranked = rerank(fused, dict.fromkeys(fused.keys, 1.0), top_k=2)
-        assert reranked.keys == fused.keys[:2]
+        assert fused.keys != tuple(sorted(fused.keys))  # so a tie broken on id would show
+        assert rerank(fused, dict.fromkeys(fused.keys, 1.0)).keys == fused.keys
+        assert rerank(fused, dict.fromkeys(fused.keys, 1.0), top_k=2).keys == fused.keys[:2]
+        assert rerank(fused, dict.fromkeys(fused.keys, 1.0), top_k=0).candidates == ()
 
     def test_an_empty_trace_reranks_to_an_empty_trace(self) -> None:
         assert rerank(fuse(RANKINGS, top_k=0), {}).candidates == ()
@@ -280,13 +337,59 @@ class TestRerank:
         scores: dict[Any, float] = {**dict.fromkeys(fused.keys, 1.0), intruder: 99.0}
         with pytest.raises(IneligibleCandidateError, match="1 document") as raised:
             rerank(fused, scores)
+        assert str(intruder) not in str(raised.value)
+
+    def test_eligible_re_checks_a_hand_built_trace(self) -> None:
+        fused = fuse(RANKINGS, eligible=ELIGIBLE)
+        forged = replace(
+            fused, candidates=(*fused.candidates, replace(fused.candidates[0], key=OTHER_TENANT))
+        )
+        scores = {**dict.fromkeys(fused.keys, 0.0), OTHER_TENANT: 9.0}
+        assert rerank(forged, scores).keys[0] == OTHER_TENANT  # without eligible=, it is trusted
+        with pytest.raises(IneligibleCandidateError, match="1 candidate") as raised:
+            rerank(forged, scores, eligible=ELIGIBLE)
         assert OTHER_TENANT not in str(raised.value)
 
-    def test_cannot_promote_a_candidate_cut_by_top_k(self) -> None:
-        fused = fuse(RANKINGS, top_k=2)
-        cut = fuse(RANKINGS).keys[2]
+    def test_eligible_refuses_a_str_subclass_that_claims_membership(self) -> None:
+        class Lookalike(str):
+            def __eq__(self, other: object) -> bool:
+                return True
+
+            def __hash__(self) -> int:
+                return hash("act-12@v2#s4")
+
+        fused = fuse(RANKINGS, eligible=ELIGIBLE)
+        assert Lookalike(OTHER_TENANT) in ELIGIBLE  # a plain membership test is fooled
+        forged = replace(
+            fused, candidates=(replace(fused.candidates[0], key=Lookalike(OTHER_TENANT)),)
+        )
         with pytest.raises(IneligibleCandidateError):
-            rerank(fused, {**dict.fromkeys(fused.keys, 0.0), cut: 5.0})
+            rerank(forged, {"act-12@v2#s4": 1.0}, eligible=ELIGIBLE)
+
+    def test_scores_are_read_once(self) -> None:
+        fused = fuse(RANKINGS, top_k=2)
+
+        class Fickle(Mapping[str, float]):
+            """Finite on the first read of each id, NaN on any read after that."""
+
+            def __init__(self, keys: tuple[str, ...]) -> None:
+                self.keys_, self.reads = keys, 0
+
+            def __getitem__(self, doc_id: str) -> float:
+                if doc_id not in self.keys_:
+                    raise KeyError(doc_id)
+                self.reads += 1
+                return 1.0 if self.reads <= len(self.keys_) else float("nan")
+
+            def __iter__(self) -> Iterator[str]:
+                return iter(self.keys_)
+
+            def __len__(self) -> int:
+                return len(self.keys_)
+
+        scores = Fickle(fused.keys)
+        assert rerank(fused, scores).keys == fused.keys
+        assert scores.reads == len(fused.keys)
 
     def test_every_candidate_must_be_scored(self) -> None:
         fused = fuse(RANKINGS)
@@ -304,8 +407,15 @@ class TestRerank:
     )
     def test_scores_are_checked(self, bad: object, error: type[Exception]) -> None:
         fused = fuse(RANKINGS, top_k=1)
-        with pytest.raises(error):
+        with pytest.raises(error, match="fused rank 0") as raised:
             rerank(fused, {fused.keys[0]: bad})  # type: ignore[dict-item]
+        assert fused.keys[0] not in str(raised.value)
+
+    def test_the_first_bad_score_in_fused_order_is_reported(self) -> None:
+        fused = fuse(RANKINGS, top_k=2)
+        bad = {fused.keys[1]: float("nan"), fused.keys[0]: True}
+        with pytest.raises(TypeError, match="fused rank 0"):
+            rerank(fused, bad)  # type: ignore[arg-type]
 
     def test_only_a_fresh_fusion_trace_reranks(self) -> None:
         fused = fuse(RANKINGS)

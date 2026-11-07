@@ -69,7 +69,7 @@ hits[0].item  # the original object, from the retriever whose weighted contribut
 - You want to say how much each retriever counts, as a float, and keep that weighting visible in the code.
 - You need to see, for each result, which retriever found it and at what rank. That helps when debugging, building a UI, or writing an evaluation report.
 - You have labelled queries and want to choose weights from them, with the metrics to check that choice.
-- You need one record of every retriever's rank and score from fusion through reranking, and a reranker that can only reorder candidates your access rules let through.
+- You need one record of every retriever's rank and score from fusion through reranking, and a reranker that can only reorder the candidates fusion returned.
 
 ## Limitations
 
@@ -115,7 +115,7 @@ Everything imports from `ragfuse`. Names marked *(main only)* are not in v0.2.0.
 | `combsum(rankings, *, normalize, weights, key, top_k)` · `combmnz(...)` *(main only)* | Fuses `(document, score)` lists by normalised score. | [Which fusion?](#which-fusion) |
 | `FusedHit` · `Contribution` | Frozen result types: a fused document, and one retriever's share of its score. | [Every hit explains itself](#every-hit-explains-itself) |
 | `fuse(rankings, *, method, weights, k, normalize, key, eligible, top_k)` *(main only)* | Runs `rrf`, `combsum` or `combmnz` on checked `(document, score)` lists and traces every retriever. | [Trace fusion and reranking](#trace-fusion-and-reranking) |
-| `rerank(trace, scores, *, top_k)` *(main only)* | Reorders a trace's candidates by your reranker's scores; refuses any other id. | [Trace fusion and reranking](#trace-fusion-and-reranking) |
+| `rerank(trace, scores, *, eligible, top_k)` *(main only)* | Reorders a trace's candidates by your reranker's scores; refuses any other id. | [Trace fusion and reranking](#trace-fusion-and-reranking) |
 | `FusionTrace` · `Candidate` · `SourceTrace` *(main only)* | Frozen records: the run's parameters, each candidate, and each retriever's part in it. | [Trace fusion and reranking](#trace-fusion-and-reranking) |
 | `IneligibleCandidateError` *(main only)* | A `ValueError` for an id outside `eligible=` or outside the fused candidates. | [Trace fusion and reranking](#trace-fusion-and-reranking) |
 | `tune_weights(rankings, relevant, *, k, top_k, metric, resolution, key)` | Sweeps the weight simplex for the best assignment. | [Choosing weights from evidence](#choosing-weights-from-evidence) |
@@ -222,29 +222,31 @@ Results are immutable, and ties break on document id, so the same inputs always 
 
 ## Trace fusion and reranking
 
-A pipeline with access rules needs more than a fused order. It needs to show where each candidate came from, and to know that no later stage brought in a document the rules excluded. `fuse` runs one of the three fusions and returns a `FusionTrace`. `rerank` then reorders that trace's candidates by scores your reranker produced.
+A pipeline with access rules needs more than a fused order. It needs to show where each candidate came from, and to check that reranking did not bring in a document outside them. `fuse` runs one of the three fusions and returns a `FusionTrace`. `rerank` then reorders that trace's candidates by scores your reranker produced.
 
 ```python
 from ragfuse import IneligibleCandidateError, fuse, rerank
 
+allowed = {"act-12#s4", "act-12#s7", "reg-3#s2"}  # what this caller may see
 trace = fuse(
     {
         "bm25": [("act-12#s4", 9.0), ("act-12#s7", 6.5), ("reg-3#s2", 2.0)],
         "dense": [("reg-3#s2", 0.91), ("act-12#s4", 0.88)],
     },
     weights={"bm25": 0.6, "dense": 0.4},
-    eligible={"act-12#s4", "act-12#s7", "reg-3#s2"},  # what this caller may see
+    eligible=allowed,
     top_k=3,
 )
 for c in trace.candidates:
     print(c.key, [(t.source, t.rank, t.raw_score) for t in c.retrievers])
 
 # Scores from your reranker, keyed by id. It may reorder or cut the shortlist.
-reranked = rerank(trace, {"act-12#s4": 1.2, "act-12#s7": -0.4, "reg-3#s2": 2.3})
+scores = {"act-12#s4": 1.2, "act-12#s7": -0.4, "reg-3#s2": 2.3}
+reranked = rerank(trace, scores, eligible=allowed)
 print(reranked.keys, [c.fused_rank for c in reranked.candidates])
 
 try:  # but it may not add to it
-    rerank(trace, {**dict.fromkeys(trace.keys, 0.0), "tenant-b#s1": 9.9})
+    rerank(trace, {**scores, "tenant-b#s1": 9.9}, eligible=allowed)
 except IneligibleCandidateError as error:
     print(error)
 ```
@@ -257,15 +259,19 @@ act-12#s7 [('bm25', 1, 6.5), ('dense', None, None)]
 the reranker scored 1 document(s) that are not candidates of this fusion; reranking can reorder or cut the candidates, never add to them
 ```
 
-Each candidate's `retrievers` lists every retriever by name, including those that did not return it. Each entry carries `rank`, `raw_score`, `value` (the RRF term or the normalised score), `weight` and `contribution`. After `rerank`, a candidate also keeps its `fused_rank`, `fused_score` and `normalized_score`, and gains `rerank_score`. The trace records the method, `k` or `normalize`, and the resolved weights.
+Each candidate's `retrievers` lists every retriever by name, including those that did not return it. Each entry carries `rank`, `raw_score`, `value` (the RRF term or the normalised score), `weight` and `contribution`, which is what the fusion added for it. CombMNZ multiplies the sum of contributions by the number of weighted retrievers that found the candidate. After `rerank`, a candidate also keeps its `fused_rank`, `fused_score` and `normalized_score`, and gains `rerank_score`. The trace records the method, `k` or `normalize`, and the resolved weights.
 
 `fuse` is stricter than the functions it wraps:
 
-- Every list holds `(document, score)` pairs, best first. RRF records the scores but fuses on rank. A score must be a finite real number, not a `bool` or a string, and no score may exceed the one before it, so negate distances.
-- Retrievers need names. Every id and name must be a non-empty `str` with no surrounding whitespace or control characters. `key=` is called once per entry. Retrievers are fused in name order, so the mapping's order cannot change the result.
-- With `eligible=`, an id outside the set fails the whole call. `rerank` needs a score for every candidate and for nothing else. The errors give counts and positions, never the offending ids, so another tenant's id does not end up in your logs.
+- Every list holds `(document, score)` pairs, best first. RRF records the scores but fuses on rank. A score must be a finite real number, not a `bool` or a string, and no score may exceed the one before it, so negate distances. Scores are recorded as floats.
+- Retrievers need names, and `weights=` must be a mapping. Every id and name must be an exact, non-empty `str` with no surrounding whitespace or control characters. `key=` is called once per entry. Retrievers are fused in name order, so the mapping's order cannot change the result.
+- With `eligible=`, an id outside the set fails the whole call with `IneligibleCandidateError`. `rerank` needs a score for every candidate and for nothing else. Pass it the same `eligible=` as well: a `FusionTrace` is a plain dataclass anyone can build, and that re-checks the trace itself. The error is a `ValueError`, so catch it before any broad `except ValueError`. Error messages give counts and positions, never the offending ids, so another tenant's id does not end up in your logs.
 
-This checks that a stage stays inside the candidate set it was given. It does not decide what is eligible, and it does not check whether a reranker is any good. On rag-eval-lab's benchmark a general-purpose reranker [made results worse](#does-weighted-fusion-actually-help).
+What it does not check:
+
+- **Document contents.** `item` is whatever the retriever returned for that id. Fetch the text you show or quote from your own store, by id. `item` is left out of `repr`, so logging a trace does not dump documents.
+- **Raw score scale.** With `normalize=None`, one retriever's raw scale can outweigh the others. The contributions show when it does.
+- **Eligibility and reranker quality.** It does not decide what is eligible, and it does not check whether a reranker is any good. On rag-eval-lab's benchmark a general-purpose reranker [made results worse](#does-weighted-fusion-actually-help).
 
 ## Choosing weights from evidence
 

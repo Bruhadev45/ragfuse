@@ -233,7 +233,7 @@ class TestValidation:
         with pytest.raises(ValueError, match="greater than zero"):
             reciprocal_rank_fusion({"a": ["x"], "b": ["y"]}, weights={"a": 0, "b": 0})
 
-    @pytest.mark.parametrize("bad", [float("inf"), float("-inf")])
+    @pytest.mark.parametrize("bad", [float("inf"), float("-inf"), 10**400, -(10**400)])
     def test_infinite_weight_is_rejected(self, bad: float) -> None:
         # inf / (k + rank + 1) is inf, and inf / inf left normalized_score NaN.
         with pytest.raises(ValueError, match="infinite"):
