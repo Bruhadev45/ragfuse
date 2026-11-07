@@ -380,7 +380,7 @@ class TestRerank:
         with pytest.raises(TypeError, match="could not be read") as raised:
             rerank(fuse(RANKINGS), Broken())
         assert OTHER_TENANT not in str(raised.value)
-        assert raised.value.__suppress_context__
+        assert raised.value.__context__ is None and raised.value.__cause__ is None
 
     def test_a_repeated_candidate_is_refused(self) -> None:
         fused = fuse(RANKINGS, top_k=1)

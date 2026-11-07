@@ -398,10 +398,13 @@ def rerank(
             raise IneligibleCandidateError(
                 f"the trace holds {stray} candidate(s) outside eligible; build it with fuse"
             )
+    snapshot: dict[Any, Any] | None
     try:  # one read, so the checks below all see the same scores
         snapshot = dict(scores)
-    except Exception:  # its own error could name an id; do not pass it on
-        raise TypeError("scores could not be read as a mapping") from None
+    except Exception:  # its own error could name an id, so drop it entirely
+        snapshot = None
+    if snapshot is None:  # raised out here, so the dropped error is not its context
+        raise TypeError("scores could not be read as a mapping")
     pool = {candidate.key for candidate in trace.candidates}
     if len(pool) != len(trace.candidates):
         raise ValueError("the trace holds the same candidate twice; build it with fuse")
