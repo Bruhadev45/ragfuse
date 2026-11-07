@@ -271,6 +271,7 @@ What it does not check:
 
 - **Document contents.** `item` is whatever the retriever returned for that id. Fetch the text you show or quote from your own store, by id. `item` is left out of `repr`, so logging a trace does not dump documents.
 - **Raw score scale.** With `normalize=None`, one retriever's raw scale can outweigh the others. The contributions show when it does.
+- **Input size.** Both functions read everything they are given. Cap list lengths, the number of retrievers and the size of the score map in the service that calls them.
 - **Eligibility and reranker quality.** It does not decide what is eligible, and it does not check whether a reranker is any good. On rag-eval-lab's benchmark a general-purpose reranker [made results worse](#does-weighted-fusion-actually-help).
 
 ## Choosing weights from evidence

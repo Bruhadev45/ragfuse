@@ -26,10 +26,11 @@ candidates by scores you supply, and only those candidates.
   catch it before any broad ``except ValueError``. These messages give counts
   and positions, never the ids.
 
-Ids are checked; documents are not. A candidate's ``item`` is whatever the
-retriever returned for that id, so fetch the text you show or quote from your
-own store by id. Rerank scores order one shortlist and nothing more; each
-candidate keeps its fusion scores beside them.
+Inputs are read in full: cap list lengths, retriever counts and score maps
+in the service that calls these. Ids are checked; documents are not. A
+candidate's ``item`` is whatever the retriever returned for that id, so fetch
+the text you show or quote from your own store by id. Rerank scores order one
+shortlist and nothing more; each candidate keeps its fusion scores beside them.
 """
 
 from __future__ import annotations
@@ -152,6 +153,10 @@ def _check_form(value: str, what: str) -> str:
     if not value or value != value.strip() or not value.isprintable():
         raise ValueError(f"{what} must be non-empty, without surrounding whitespace or controls")
     return value
+
+
+def _checked_name(name: object) -> str:
+    return _check_form(_check_type(name, "retriever name"), "retriever name")
 
 
 def _check_top_k(top_k: object) -> None:
@@ -316,8 +321,7 @@ def fuse(
     if method == "rrf" and (type(k) is not int or not 0 < k <= _MAX_K):
         raise ValueError("k must be a positive int no larger than 2**53")
     _check_top_k(top_k)
-    names = sorted(_check_form(_check_type(name, "retriever name"), "retriever name")
-                   for name in rankings)  # fmt: skip
+    names = sorted(_checked_name(name) for name in rankings)
     weight_map = _as_weight_map(weights, names)
     allowed = _allowed(eligible)
     lists = {name: _checked_list(name, rankings[name], key, allowed) for name in names}
@@ -371,7 +375,8 @@ def rerank(
             candidate of ``trace``, or ``trace`` holds a candidate outside
             ``eligible``.
         ValueError: If a candidate is unscored, a score is not finite, the
-            trace is already reranked, or ``top_k`` is not a non-negative int.
+            trace is already reranked or repeats a candidate, or ``top_k`` is
+            not a non-negative int.
         TypeError: On a wrong argument type or a non-numeric score.
 
     Example:
@@ -393,8 +398,13 @@ def rerank(
             raise IneligibleCandidateError(
                 f"the trace holds {stray} candidate(s) outside eligible; build it with fuse"
             )
-    snapshot = dict(scores)  # one read, so the checks below all see the same scores
+    try:  # one read, so the checks below all see the same scores
+        snapshot = dict(scores)
+    except Exception:  # its own error could name an id; do not pass it on
+        raise TypeError("scores could not be read as a mapping") from None
     pool = {candidate.key for candidate in trace.candidates}
+    if len(pool) != len(trace.candidates):
+        raise ValueError("the trace holds the same candidate twice; build it with fuse")
     outside = sum(1 for doc_id in snapshot if type(doc_id) is not str or doc_id not in pool)
     if outside:
         raise IneligibleCandidateError(

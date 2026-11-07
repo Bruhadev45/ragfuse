@@ -93,7 +93,9 @@ def _as_weight_map(
         if isnan(weight):
             raise ValueError(f"weight for {name!r} is NaN; weights must be finite and >= 0")
         if isinf(weight):
-            raise ValueError(f"weight for {name!r} is infinite; weights must be finite and >= 0")
+            raise ValueError(
+                f"weight for {name!r} is infinite ({weight}); weights must be finite and >= 0"
+            )
         if weight < 0:
             raise ValueError(f"weight for {name!r} is negative ({weight}); weights must be >= 0")
 

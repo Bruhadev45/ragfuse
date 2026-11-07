@@ -366,6 +366,28 @@ class TestRerank:
         with pytest.raises(IneligibleCandidateError):
             rerank(forged, {"act-12@v2#s4": 1.0}, eligible=ELIGIBLE)
 
+    def test_a_mapping_that_fails_to_read_does_not_leak_its_error(self) -> None:
+        class Broken(Mapping[str, float]):
+            def __getitem__(self, doc_id: str) -> float:
+                raise KeyError(doc_id)
+
+            def __iter__(self) -> Iterator[str]:
+                return iter([OTHER_TENANT])
+
+            def __len__(self) -> int:
+                return 1
+
+        with pytest.raises(TypeError, match="could not be read") as raised:
+            rerank(fuse(RANKINGS), Broken())
+        assert OTHER_TENANT not in str(raised.value)
+        assert raised.value.__suppress_context__
+
+    def test_a_repeated_candidate_is_refused(self) -> None:
+        fused = fuse(RANKINGS, top_k=1)
+        forged = replace(fused, candidates=fused.candidates * 2)
+        with pytest.raises(ValueError, match="same candidate twice"):
+            rerank(forged, {fused.keys[0]: 1.0}, eligible=ELIGIBLE)
+
     def test_scores_are_read_once(self) -> None:
         fused = fuse(RANKINGS, top_k=2)
 
