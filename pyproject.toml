@@ -62,4 +62,4 @@ select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RET", "ARG", "PTH", 
 [tool.mypy]
 python_version = "3.10"
 strict = true
-files = ["src/ragfuse"]
+files = ["src/ragfuse", "examples/two_shapes.py"]

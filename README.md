@@ -369,16 +369,16 @@ by 0.27, which is more than most reported improvements.
 
 ## Does weighted fusion actually help?
 
-Sometimes. Four measured query sets, all reproducible from [rag-eval-lab](https://github.com/Bruhadev45/rag-eval-lab), give a gain, a null, a loss and no change at all:
+It depends on the queries. Three overlapping query sets from one benchmark, and one small fictional demo, are measured and reproducible in [rag-eval-lab](https://github.com/Bruhadev45/rag-eval-lab):
 
 | Query set | Queries | Fusion, against | MRR change | Paired p | Source |
 |---|---|---|---|---|---|
-| JurisGPT benchmark, human-verified | 120 | production RRF, against lexical | +0.0653 | 0.0025 | [TABLES.md](https://github.com/Bruhadev45/rag-eval-lab/blob/main/results/TABLES.md) |
+| JurisGPT benchmark, human-verified | 120 | JurisGPT's BM25 + lexical RRF (2:1, by passing BM25 twice), against lexical alone | +0.0653 | 0.0025 | [TABLES.md](https://github.com/Bruhadev45/rag-eval-lab/blob/main/results/TABLES.md) |
 | The 120 plus 84 generated queries | 204 | the same | −0.0184 | 0.3840 | the same |
 | The 84 generated queries alone | 84 | the same | −0.1379 | 0.0002 | the same |
-| Fictional legal demo, held-out test | 19 (12 with evidence, from 7 cases) | ragfuse RRF over BM25 and TF-IDF, against BM25 | 0.0 | 1.0 | [TEST_ABLATION.md](https://github.com/Bruhadev45/rag-eval-lab/blob/main/results/legal-demo/live/TEST_ABLATION.md) |
+| Fictional legal demo, held-out test | 19 (12 with evidence, from 7 cases) | ragfuse weighted RRF (0.5 / 0.5) over BM25 and TF-IDF, against BM25 alone | 0.0 | 1.0 | [TEST_ABLATION.md](https://github.com/Bruhadev45/rag-eval-lab/blob/main/results/legal-demo/live/TEST_ABLATION.md) |
 
-The first three are recomputed from committed JurisGPT run files by `make reproduce`, with a paired bootstrap and a sign-flip test over queries. The last runs the retrievers with `python -m rageval.legal_demo.heldout`, pairs by case, and is the only row that used ragfuse itself. There, BM25, TF-IDF and their fusion kept the same passages for every test query, so fusion had nothing to change; seven fictional cases could not show a small difference anyway. No row shows one fusion winning everywhere. The details of the first three follow.
+The 204 queries are the 120 plus the 84, so the first three rows are not independent samples. They are recomputed from committed JurisGPT run files by `make reproduce`, with a paired bootstrap and a sign-flip test over queries; the gain on the 120 human-verified queries reverses on the 84 generated ones. The last row runs the retrievers with `python -m rageval.legal_demo.heldout`, pairs by case, and is the only one that used ragfuse itself. There BM25, TF-IDF and their fusion kept the same passages for every test query, so fusion had nothing to change. That zero is uninformative, not evidence against fusion: rag-eval-lab says these numbers check code paths on fictional data, not retrieval quality, and seven cases could not show a small difference anyway. The details of the first three follow.
 
 These numbers come from [JurisGPT](https://github.com/Bruhadev45/Juris-GPT), the citation-grounded legal RAG system this library was extracted from — a 120-query human-verified benchmark (Fleiss' κ = 0.81) over 47,867 Indian statutory documents.
 

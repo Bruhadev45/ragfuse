@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,9 @@ from ragfuse import FusionTrace, fuse
 
 DATA = Path(__file__).resolve().parent / "data"
 MAX_BYTES = 1_000_000  # an example's inputs; size a real service's cap to its retrievers
+MAX_QID = 64
+_RANK = re.compile(r"[0-9]+")
+_NUMBER = re.compile(r"[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
 
 Ranked = dict[str, list[tuple[str, float]]]  # query id -> best-first (id, score)
 
@@ -41,7 +45,14 @@ def _read_capped(path: Path) -> str:
         raw = handle.read(MAX_BYTES + 1)
     if len(raw) > MAX_BYTES:
         raise ValueError(f"{path.name}: larger than {MAX_BYTES} bytes")
-    return raw.decode("utf-8")
+    return raw.decode("utf-8-sig")  # a leading byte-order mark is not part of the first qid
+
+
+def _check_qid(qid: str, where: str) -> str:
+    """Query ids are printed, so they must be short and printable."""
+    if not qid or len(qid) > MAX_QID or not qid.isprintable() or qid != qid.strip():
+        raise ValueError(f"{where}: query id must be 1-{MAX_QID} printable characters")
+    return qid
 
 
 def _finite(value: float, where: str) -> float:
@@ -51,10 +62,10 @@ def _finite(value: float, where: str) -> float:
 
 
 def _parse_score(text: str, where: str) -> float:
-    try:
-        return _finite(float(text), where)
-    except ValueError:
-        raise ValueError(f"{where}: score {text!r} is not a finite number") from None
+    """An ASCII decimal number; error messages name the line, never echo the field."""
+    if not _NUMBER.fullmatch(text):
+        raise ValueError(f"{where}: score is not a decimal number")
+    return _finite(float(text), where)
 
 
 def read_trec_run(path: Path) -> Ranked:
@@ -74,8 +85,9 @@ def read_trec_run(path: Path) -> Ranked:
         if len(fields) != 6:
             raise ValueError(f"{where}: expected 6 fields, got {len(fields)}")
         qid, _, docno, rank_text, score_text, tag = fields
-        if not rank_text.isdigit() or int(rank_text) < 1:
-            raise ValueError(f"{where}: rank {rank_text!r} is not a positive integer")
+        _check_qid(qid, where)
+        if not _RANK.fullmatch(rank_text) or int(rank_text) < 1:
+            raise ValueError(f"{where}: rank is not a positive integer")
         tags.add(tag)
         rows.setdefault(qid, []).append((int(rank_text), docno, _parse_score(score_text, where)))
     if len(tags) > 1:
@@ -100,7 +112,10 @@ def read_minirag_hits(path: Path) -> tuple[Ranked, dict[str, str]]:
     the order minirag returned them in; :func:`ragfuse.fuse` checks it is
     best-first.
     """
-    data = json.loads(_read_capped(path))
+    try:
+        data = json.loads(_read_capped(path))
+    except RecursionError:
+        raise ValueError(f"{path.name}: JSON nested too deeply") from None
     results = data.get("results") if isinstance(data, dict) else None
     if not isinstance(results, list):
         raise ValueError(f"{path.name}: expected an object with a 'results' list")
@@ -113,8 +128,11 @@ def read_minirag_hits(path: Path) -> tuple[Ranked, dict[str, str]]:
         qid, query = result.get("query_id"), result.get("query")
         if not isinstance(qid, str) or not isinstance(query, str) or qid in ranked:
             raise ValueError(f"{where}: needs a unique string query_id and a string query")
-        hits = result["hits"]
-        ranked[qid] = [_minirag_hit(hit, f"{where}.hits[{i}]") for i, hit in enumerate(hits)]
+        _check_qid(qid, where)
+        hits = [_minirag_hit(hit, f"{where}.hits[{i}]") for i, hit in enumerate(result["hits"])]
+        if len({doc_id for doc_id, _ in hits}) != len(hits):
+            raise ValueError(f"{where}: lists a doc_id twice")
+        ranked[qid] = hits
         queries[qid] = query
     return ranked, queries
 
@@ -125,7 +143,11 @@ def _minirag_hit(hit: Any, where: str) -> tuple[str, float]:
     score = hit.get("score")
     if isinstance(score, bool) or not isinstance(score, int | float):
         raise ValueError(f"{where}: score must be a number")
-    return hit["doc_id"], _finite(float(score), where)
+    try:
+        value = float(score)
+    except OverflowError:  # an integer too large for a float
+        raise ValueError(f"{where}: score must be finite") from None
+    return hit["doc_id"], _finite(value, where)
 
 
 DEPTH = 10  # each file keeps a retriever's top 10, so "-" means "not in its top 10"
@@ -142,6 +164,8 @@ def _cell(rank: int | None, score: float | None) -> str:
 
 def report(trace: FusionTrace) -> list[str]:
     """A table of the fused candidates, then how the top one's score adds up."""
+    if not trace.candidates:
+        return ["  (neither retriever returned anything)"]
     lines = [f"  {'fused':>5}  {'document':<14} {'score':>8}   {'bm25':<10}  dense"]
     for candidate in trace.candidates:
         cells = {t.source: _cell(t.rank, t.raw_score) for t in candidate.retrievers}
