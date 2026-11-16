@@ -77,7 +77,7 @@ hits[0].item  # the original object, from the retriever whose weighted contribut
 - It works in memory, one query at a time, in pure Python. Its speed has not been benchmarked.
 - The metrics use binary relevance: a document is either relevant or not. There is no graded nDCG.
 - `tune_weights` sweeps a grid of weights and refuses grids over 200,000 combinations. With few labelled queries, the best weights may only fit noise, so check them on queries you did not tune on.
-- Fusion does not always help. [Below](#does-weighted-fusion-actually-help), it raised MRR on 120 human-verified legal queries, but the gain did not replicate on a wider query set. Measure on your own data.
+- Fusion does not always help. [Below](#does-weighted-fusion-actually-help), it raised MRR on 120 human-verified legal queries, but the gain did not replicate on a wider query set, and on a small fictional legal demo it changed nothing. Measure on your own data.
 - It is not on PyPI, and v0.2.0 lacks the names marked *(main only)* (see [Install](#install)).
 
 ## Input and output
@@ -274,6 +274,38 @@ What it does not check:
 - **Input size.** Both functions read everything they are given. Cap list lengths, the number of retrievers and the size of the score map in the service that calls them.
 - **Eligibility and reranker quality.** It does not decide what is eligible, and it does not check whether a reranker is any good. On rag-eval-lab's benchmark a general-purpose reranker [made results worse](#does-weighted-fusion-actually-help).
 
+## Fuse two tools' results
+
+Retrievers rarely agree on a format. [`examples/two_shapes.py`](examples/two_shapes.py) reads two for the same two queries: BM25 results as a TREC run file (`qid Q0 docno rank score tag`, the format trec_eval reads and Anserini and Pyserini write), and dense results as the `Hit` records [minirag](https://github.com/Bruhadev45/minirag)'s `search` returns, saved as JSON. Each reader turns its shape into best-first `(id, score)` lists. It raises on a malformed line, a repeated rank or id, a non-finite score or an oversized file, and `fuse` then rejects a list that is not best-first. The example needs a clone, because `examples/` is not installed:
+
+```bash
+git clone https://github.com/Bruhadev45/ragfuse && cd ragfuse
+python3 -m venv .venv && .venv/bin/pip install -e .
+.venv/bin/python examples/two_shapes.py
+```
+
+```
+rank and raw score per retriever; - = not in that retriever's top 10
+
+q1: 'dwarf planet beyond neptune'
+  fused  document          score   bm25        dense
+      1  pluto          0.032522    1  5.8594   2  0.2057
+      2  asteroid_belt  0.032266    3  4.2919   1  0.2100
+      3  kuiper_belt    0.032002    2  4.4007   3  0.1613
+      4  neptune        0.031250    4  3.2935   4  0.1473
+      5  europa         0.030769    5  2.9857   5  0.1409
+      6  mars           0.030077    7  1.1032   6  0.0940
+      7  exoplanets     0.029644    6  1.2577   9  0.0546
+      8  jupiter        0.029418    9  0.9348   7  0.0871
+      9  mercury        0.014706    8  1.0775  -
+     10  saturn         0.014706   -            8  0.0771
+  pluto: bm25 0.016393 + dense 0.016129 = 0.032522
+```
+
+Each row shows where the document stood in each list and the raw score that retriever gave it. BM25 puts `pluto` first and dense puts `asteroid_belt` first. Equal-weight RRF picks `pluto`, 1st and 2nd, over `asteroid_belt`, 3rd and 1st: being near the top of both lists beats topping one. `mercury` and `saturn` each came from one retriever's top 10, so they score about half as much and tie, and the tie breaks on id. The second query, in the full output, goes the same way.
+
+Both files are real output. [`examples/data/make_inputs.py`](examples/data/make_inputs.py) ran minirag (commit `462fa00`) on its hand-written solar-system corpus. minirag's dense retriever is hashed TF-IDF, which matches words, so this is two word matchers disagreeing, not lexical against semantic. The example shows the plumbing and how fusion settles a disagreement; two queries measure nothing.
+
 ## Choosing weights from evidence
 
 Guessing at weights is how a hybrid retriever ends up worse than either of its halves. If you have labelled queries, sweep them:
@@ -337,6 +369,17 @@ by 0.27, which is more than most reported improvements.
 
 ## Does weighted fusion actually help?
 
+Sometimes. Four measured query sets, all reproducible from [rag-eval-lab](https://github.com/Bruhadev45/rag-eval-lab), give a gain, a null, a loss and no change at all:
+
+| Query set | Queries | Fusion, against | MRR change | Paired p | Source |
+|---|---|---|---|---|---|
+| JurisGPT benchmark, human-verified | 120 | production RRF, against lexical | +0.0653 | 0.0025 | [TABLES.md](https://github.com/Bruhadev45/rag-eval-lab/blob/main/results/TABLES.md) |
+| The 120 plus 84 generated queries | 204 | the same | −0.0184 | 0.3840 | the same |
+| The 84 generated queries alone | 84 | the same | −0.1379 | 0.0002 | the same |
+| Fictional legal demo, held-out test | 19 (12 with evidence, from 7 cases) | ragfuse RRF over BM25 and TF-IDF, against BM25 | 0.0 | 1.0 | [TEST_ABLATION.md](https://github.com/Bruhadev45/rag-eval-lab/blob/main/results/legal-demo/live/TEST_ABLATION.md) |
+
+The first three are recomputed from committed JurisGPT run files by `make reproduce`, with a paired bootstrap and a sign-flip test over queries. The last runs the retrievers with `python -m rageval.legal_demo.heldout`, pairs by case, and is the only row that used ragfuse itself. There, BM25, TF-IDF and their fusion kept the same passages for every test query, so fusion had nothing to change; seven fictional cases could not show a small difference anyway. No row shows one fusion winning everywhere. The details of the first three follow.
+
 These numbers come from [JurisGPT](https://github.com/Bruhadev45/Juris-GPT), the citation-grounded legal RAG system this library was extracted from — a 120-query human-verified benchmark (Fleiss' κ = 0.81) over 47,867 Indian statutory documents.
 
 | Configuration | Recall@5 | MRR | nDCG@5 |
@@ -370,7 +413,8 @@ Retrieval quality on specialist corpora is corpus-bound, not retriever-bound. A 
 ## Related
 
 - [atlas-ui](https://github.com/Bruhadev45/atlas-ui#retrievaltrace): React components for AI interfaces. Its `fromRagfuse` adapter maps serialised `FusedHit`s (snake_case or camelCase) onto `RetrievalTrace`, which renders each hit with its per-retriever rank and weight.
-- [rag-eval-lab](https://github.com/Bruhadev45/rag-eval-lab): the reproducible benchmark behind the numbers above, with paired significance tests over the same 120 queries and the wider 204-query replication.
+- [rag-eval-lab](https://github.com/Bruhadev45/rag-eval-lab): the reproducible benchmark behind the numbers above, with paired significance tests over the same 120 queries, the wider 204-query replication and the fictional legal-demo ablation.
+- [minirag](https://github.com/Bruhadev45/minirag): a small retrieval engine whose BM25 and dense output feed [`examples/two_shapes.py`](#fuse-two-tools-results).
 
 ## Development
 

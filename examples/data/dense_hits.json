@@ -1,0 +1,177 @@
+{
+  "retriever": "minirag dense (hashed TF-IDF)",
+  "results": [
+    {
+      "query_id": "q1",
+      "query": "dwarf planet beyond neptune",
+      "hits": [
+        {
+          "doc_id": "asteroid_belt",
+          "chunk_id": "asteroid_belt#1",
+          "text": "Ceres, the largest object there, is round enough to count as a dwarf planet. Jupiter's gravity stirred the region so violently that the material never coalesced into a planet.",
+          "score": 0.2100345813029396,
+          "mode": "dense",
+          "metadata": {}
+        },
+        {
+          "doc_id": "pluto",
+          "chunk_id": "pluto#0",
+          "text": "Pluto was classified as the ninth planet from its discovery in 1930 until 2006, when the International Astronomical Union reclassified it as a dwarf planet because it has not cleared its orbital neighbourhood. It is smaller than Earth's Moon and orbits in a tilted, elliptical path that sometimes brings it closer to the Sun than Neptune.",
+          "score": 0.20566841591939639,
+          "mode": "dense",
+          "metadata": {}
+        },
+        {
+          "doc_id": "kuiper_belt",
+          "chunk_id": "kuiper_belt#0",
+          "text": "The Kuiper belt is a doughnut-shaped region of icy bodies beyond the orbit of Neptune, stretching from thirty to about fifty astronomical units from the Sun. It is the source of most short-period comets, which take less than two hundred years to circle the Sun. Pluto, Haumea, Makemake and Eris are among its largest known members.",
+          "score": 0.16125410447565253,
+          "mode": "dense",
+          "metadata": {}
+        },
+        {
+          "doc_id": "neptune",
+          "chunk_id": "neptune#0",
+          "text": "Neptune is the outermost planet, orbiting roughly thirty times farther from the Sun than Earth does. It was found in 1846 through mathematics rather than observation, after irregularities in the orbit of Uranus pointed astronomers to where it must be. The fastest winds ever measured on a planet blow there, reaching two thousand kilometres per hour.",
+          "score": 0.14731861956697184,
+          "mode": "dense",
+          "metadata": {}
+        },
+        {
+          "doc_id": "europa",
+          "chunk_id": "europa#1",
+          "text": "Tidal flexing from Jupiter keeps that ocean from freezing and cracks the icy shell into long reddish-brown lineae. It is considered one of the most promising places to look for life beyond Earth.",
+          "score": 0.1408924815370627,
+          "mode": "dense",
+          "metadata": {}
+        },
+        {
+          "doc_id": "mars",
+          "chunk_id": "mars#0",
+          "text": "Mars is the fourth planet from the Sun and is often called the red planet because iron oxide dust gives its surface a rusty colour. It hosts Olympus Mons, the tallest volcano in the solar system, and Valles Marineris, a canyon system stretching four thousand kilometres. Ancient riverbeds and mineral deposits show that liquid water once flowed there.",
+          "score": 0.093950783662169,
+          "mode": "dense",
+          "metadata": {}
+        },
+        {
+          "doc_id": "jupiter",
+          "chunk_id": "jupiter#1",
+          "text": "Bands of ammonia clouds stripe the planet in cream and rust colours, driven by winds that exceed four hundred kilometres per hour. Jupiter has ninety-five confirmed moons and a magnetic field twenty thousand times stronger than Earth's.",
+          "score": 0.08711959235812139,
+          "mode": "dense",
+          "metadata": {}
+        },
+        {
+          "doc_id": "saturn",
+          "chunk_id": "saturn#0",
+          "text": "Saturn is famous for its bright ring system, the most spectacular set of rings around any planet. The rings span almost two hundred and eighty thousand kilometres yet are often less than a kilometre thick, and they are made mostly of water ice particles ranging from grains of dust to boulders.",
+          "score": 0.0771453221975946,
+          "mode": "dense",
+          "metadata": {}
+        },
+        {
+          "doc_id": "exoplanets",
+          "chunk_id": "exoplanets#0",
+          "text": "An exoplanet is a planet orbiting a star other than the Sun, and more than five thousand have been confirmed since the first detection around a sun-like star in 1995. Most were found by the transit method, which watches for the tiny dip in brightness as a planet crosses in front of its star.",
+          "score": 0.054620944643037565,
+          "mode": "dense",
+          "metadata": {}
+        },
+        {
+          "doc_id": "io",
+          "chunk_id": "io#0",
+          "text": "Io is the most volcanically active body in the solar system, with more than four hundred active volcanoes throwing plumes of sulfur dioxide hundreds of kilometres into space. Tidal heating from the gravitational tug of war between Jupiter and the other Galilean moons melts its interior.",
+          "score": 0.05275888032157716,
+          "mode": "dense",
+          "metadata": {}
+        }
+      ]
+    },
+    {
+      "query_id": "q2",
+      "query": "which moon has an ocean under the ice",
+      "hits": [
+        {
+          "doc_id": "pluto",
+          "chunk_id": "pluto#1",
+          "text": "The New Horizons flyby in 2015 revealed nitrogen ice plains and mountains of water ice.",
+          "score": 0.22257529462925013,
+          "mode": "dense",
+          "metadata": {}
+        },
+        {
+          "doc_id": "moon",
+          "chunk_id": "moon#0",
+          "text": "The Moon is Earth's only natural satellite and the fifth largest in the solar system. Its gravitational pull raises the ocean tides, and tidal locking means the same near side always faces Earth. The dark plains visible from the ground are maria, vast basins flooded by ancient lava flows.",
+          "score": 0.17207506903356828,
+          "mode": "dense",
+          "metadata": {}
+        },
+        {
+          "doc_id": "europa",
+          "chunk_id": "europa#0",
+          "text": "Europa is one of the four large Galilean moons of Jupiter and the smoothest solid body known. Beneath a crust of water ice roughly fifteen kilometres thick lies a subsurface saltwater ocean that may hold twice as much liquid as all of Earth's oceans combined.",
+          "score": 0.16777028283628215,
+          "mode": "dense",
+          "metadata": {}
+        },
+        {
+          "doc_id": "titan",
+          "chunk_id": "titan#0",
+          "text": "Titan is the largest moon of Saturn and the only moon with a substantial atmosphere, a dense nitrogen haze thicker than Earth's own. It is the only world besides Earth with stable liquid on its surface: lakes and seas of liquid methane and ethane collect near the poles and are fed by a hydrocarbon rain cycle.",
+          "score": 0.15114067846855464,
+          "mode": "dense",
+          "metadata": {}
+        },
+        {
+          "doc_id": "comets",
+          "chunk_id": "comets#0",
+          "text": "A comet is a body of ice, dust and frozen gases that grows a glowing coma and a tail when it approaches the Sun and the ice sublimates. The tail always points away from the Sun regardless of the direction of travel, because it is pushed by radiation pressure.",
+          "score": 0.1441267227110098,
+          "mode": "dense",
+          "metadata": {}
+        },
+        {
+          "doc_id": "neptune",
+          "chunk_id": "neptune#1",
+          "text": "The fastest winds ever measured on a planet blow there, reaching two thousand kilometres per hour. Its largest moon, Triton, orbits backwards and is likely a captured object.",
+          "score": 0.12089911864625669,
+          "mode": "dense",
+          "metadata": {}
+        },
+        {
+          "doc_id": "io",
+          "chunk_id": "io#1",
+          "text": "Tidal heating from the gravitational tug of war between Jupiter and the other Galilean moons melts its interior. Sulfur compounds paint the surface in yellows, oranges and reds, and there are no impact craters because lava resurfaces the moon constantly.",
+          "score": 0.10549471890334595,
+          "mode": "dense",
+          "metadata": {}
+        },
+        {
+          "doc_id": "saturn",
+          "chunk_id": "saturn#1",
+          "text": "Gaps such as the Cassini Division separate the major ring groups. Saturn itself is a gas giant so light that it would float in a sufficiently large ocean.",
+          "score": 0.10404094123010818,
+          "mode": "dense",
+          "metadata": {}
+        },
+        {
+          "doc_id": "mars",
+          "chunk_id": "mars#1",
+          "text": "Ancient riverbeds and mineral deposits show that liquid water once flowed there. Today the thin atmosphere is mostly carbon dioxide and the polar caps are frozen water and dry ice.",
+          "score": 0.10108936006007299,
+          "mode": "dense",
+          "metadata": {}
+        },
+        {
+          "doc_id": "earth",
+          "chunk_id": "earth#1",
+          "text": "Plate tectonics continually recycle the crust, building mountains and opening ocean basins. A strong magnetic field generated in the molten iron core deflects charged particles from space.",
+          "score": 0.09678527080463238,
+          "mode": "dense",
+          "metadata": {}
+        }
+      ]
+    }
+  ]
+}
